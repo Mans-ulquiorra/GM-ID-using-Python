@@ -88,14 +88,26 @@ class KDTreeInterpolator:
     Methods:
         interpolate: Interpolates z values based on provided x, y, and z expressions.
     """
-    def __init__(self, extracted_table: dict) -> None:
+    def __init__(self, extracted_table: dict, x_expression: Expression, y_expression: Expression) -> None:
         self.extracted_table = extracted_table
+        x_array, _ = evaluate_expression(x_expression, extracted_table)
+        y_array, _ = evaluate_expression(y_expression, extracted_table)
+        self._x_min, self._x_max = x_array.min(), x_array.max()
+        self._y_min, self._y_max = y_array.min(), y_array.max()
+        raw = np.column_stack((x_array.ravel(), y_array.ravel()))
+        scaled = self._scale(raw[:, 0], raw[:, 1])
+        self._tree = cKDTree(scaled)
+        self._k = min(8, len(scaled))
+
+    def _scale(self, x: np.ndarray, y: np.ndarray) -> np.ndarray:
+        return np.column_stack((
+            (x - self._x_min) / (self._x_max - self._x_min),
+            (y - self._y_min) / (self._y_max - self._y_min)
+        ))
 
     def interpolate(
         self,
-        x_expression: Expression,
         x_value: Union[float, Tuple[float, float], np.ndarray],
-        y_expression: Expression,
         y_value: Union[float, Tuple[float, float], np.ndarray],
         z_expression: Union[Expression, List[Expression]]
     ) -> Union[np.ndarray, List[np.ndarray]]:
@@ -103,9 +115,7 @@ class KDTreeInterpolator:
         Interpolates z values using inverse distance weighting with a KDTree.
 
         Args:
-            x_expression: Expression for x-axis points.
             x_value: Value(s) within the x_expression domain.
-            y_expression: Expression for y-axis points.
             y_value: Value(s) within the y_expression domain.
             z_expression: Expression or list of expressions for the output value(s).
 
@@ -113,40 +123,23 @@ class KDTreeInterpolator:
             A single interpolated numpy array if z_expression is a single Expression,
             or a list of numpy arrays if a list of expressions is provided.
         """
-        x_array, _ = evaluate_expression(x_expression, self.extracted_table)
-        y_array, _ = evaluate_expression(y_expression, self.extracted_table)
-        points = np.column_stack((x_array.ravel(), y_array.ravel()))
-        x_min, x_max = x_array.min(), x_array.max()
-        y_min, y_max = y_array.min(), y_array.max()
-        scaled_points = np.column_stack((
-            (points[:, 0] - x_min) / (x_max - x_min),
-            (points[:, 1] - y_min) / (y_max - y_min)
-        ))
-        tree = cKDTree(scaled_points)
         eval_points = self._prepare_eval_points(x_value, y_value)
-        scaled_eval_points = np.column_stack((
-            (eval_points[:, 0] - x_min) / (x_max - x_min),
-            (eval_points[:, 1] - y_min) / (y_max - y_min)
-        ))
+        scaled_eval = self._scale(eval_points[:, 0], eval_points[:, 1])
 
-        single_input = False
-        if not isinstance(z_expression, list):
-            z_expressions = [z_expression]
-            single_input = True
-        else:
-            z_expressions = z_expression
+        single_input = not isinstance(z_expression, list)
+        z_expressions = [z_expression] if single_input else z_expression
+
+        eps = 1e-12
+        dist, idx = self._tree.query(scaled_eval, k=self._k)
+        if self._k == 1:
+            dist = dist[:, None]
+            idx = idx[:, None]
 
         results = []
-        k = min(8, len(scaled_points))
-        eps = 1e-12
         for expr in z_expressions:
-            z_array, _ = evaluate_expression(expr, self.extracted_table)
-            z_flat = z_array.ravel()
-            dist, idx = tree.query(scaled_eval_points, k=k)
-            if k == 1:
-                dist = dist[:, None]
-                idx = idx[:, None]
-            res = np.empty(len(scaled_eval_points))
+            z_flat, _ = evaluate_expression(expr, self.extracted_table)
+            z_flat = z_flat.ravel()
+            res = np.empty(len(scaled_eval))
             zero_mask = dist[:, 0] < eps
             res[zero_mask] = z_flat[idx[zero_mask, 0]]
             if np.any(~zero_mask):

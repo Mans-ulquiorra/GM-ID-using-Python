@@ -68,6 +68,7 @@ class Mosfet:
         self.vbs = self.filtered_variables["vbs"]
         self.vgs = self.filtered_variables["vgs"]
         self.vds = self.filtered_variables["vds"]
+        self._kdtree_cache: dict = {}
 
         # Initialize basic expressions.
         self.length_expression  = Expression(variables=["length"],  label="$\\mathrm{Length}\\ (m)$")
@@ -563,10 +564,11 @@ class Mosfet:
             or a list of interpolated numpy arrays if a list is provided.
         """
         if not fast:
-            interpolator = GridInterpolator(self.extracted_table)
-        else:
-            interpolator = KDTreeInterpolator(self.extracted_table)
-        return interpolator.interpolate(x_expression, x_value, y_expression, y_value, z_expression)
+            return GridInterpolator(self.extracted_table).interpolate(x_expression, x_value, y_expression, y_value, z_expression)
+        key = (tuple(x_expression.variables), tuple(y_expression.variables))
+        if key not in self._kdtree_cache:
+            self._kdtree_cache[key] = KDTreeInterpolator(self.extracted_table, x_expression, y_expression)
+        return self._kdtree_cache[key].interpolate(x_value, y_value, z_expression)
     # >>>
 
     # lookup expression from table <<<

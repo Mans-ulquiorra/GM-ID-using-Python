@@ -164,7 +164,7 @@ class Circuit:
 
 if __name__ == "__main__":
     # Define circuit constants and lookup table location.
-    lookup_table = "/home/medwatt/git/gmid/tests/lookup_table_generator/test/tsmc65_test/tsmc65lvt.npz"
+    lookup_table = "/home/medwatt/coding/gmid_lookup/tsmc65lvt.npz"
     VDD = 1.2
     CL = 5e-12
     pmos_range = (-1.2, -0.1)
