@@ -1,8 +1,7 @@
 # Mosplot: MOSFET Characterization in Python
 
-**Mosplot** is a Python tool for the gm/Id design
-methodology. It drives a
-SPICE or Spectre simulator to build lookup tables of MOSFET operating-point
+**Mosplot** is a Python tool for the gm/Id design methodology. It uses a SPICE
+or Spectre simulator to build lookup tables of MOSFET operating-point
 parameters, then lets you plot, interpolate, and size analog circuits from
 those tables.
 
@@ -31,9 +30,15 @@ those tables.
 supported simulator (ngspice, hspice, or Spectre).
 
 ```bash
+pip install git+https://github.com/medwatt/gmid.git
+```
+
+For a local editable install:
+
+```bash
 git clone https://github.com/medwatt/gmid.git
 cd gmid
-pip install .
+pip install -e .
 ```
 
 ---
@@ -225,7 +230,7 @@ Pass any of these to `x_expression` / `y_expression` in a plot or lookup call:
 | `vbs_expression` | $V_{BS}$ |
 | `gain_expression` | Intrinsic gain $g_m / g_{ds}$ |
 | `current_density_expression` | $I_D / W$ |
-| `transist_frequency_expression` | Transit frequency $f_T$ |
+| `transit_frequency_expression` | Transit frequency $f_T$ |
 | `early_voltage_expression` | Early voltage $V_A$ |
 
 
@@ -278,7 +283,7 @@ nmos.plot_by_expression(
 ```python
 nmos.plot_by_expression(
     x_expression=nmos.gmid_expression,
-    y_expression=nmos.transist_frequency_expression,
+    y_expression=nmos.transit_frequency_expression,
     y2_expression=nmos.gain_expression,
     filtered_values=nmos.length[0:-1:4],
     y_scale="log",
@@ -333,7 +338,7 @@ nmos.plot_by_sweep(
     vbs=0, vds=1.2,
     vgs=(0.4, 1.2, 0.25),
     x_expression=nmos.length_expression,
-    y_expression=nmos.transist_frequency_expression,
+    y_expression=nmos.transit_frequency_expression,
     y2_expression=nmos.gain_expression,
     primary="length",
     y_scale="log", y2_scale="linear",

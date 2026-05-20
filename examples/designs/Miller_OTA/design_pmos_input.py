@@ -250,7 +250,7 @@ class MillerOpampCircuit:
 
 
 if __name__ == "__main__":
-    lookup = "/home/medwatt/git/gmid/tests/lookup_table_generator/test/tsmc65_test/tsmc65lvt.npz"
+    lookup = "/home/medwatt/coding/gmid_lookup/tsmc65lvt.npz"
     VDD = 1.2
     CL = 5e-12
     pmos_range = (-VDD, -0.1)
@@ -284,7 +284,7 @@ if __name__ == "__main__":
         "CMRR": Spec(10 ** (70 / 20), "max", 1),
         "PhaseMargin": Spec(70, "max", 5),
         "SlewRate": Spec(15e6, "max", 2),
-        "Area": Spec(20e-12, "min", 0.1),
+        "Area": Spec(20e-12, "min", 1),
     }
 
     opt = Optimizer(circuit, parameters, target_specs)

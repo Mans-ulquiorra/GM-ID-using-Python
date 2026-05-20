@@ -1,140 +1,187 @@
-from typing import Any, Dict, List, Optional
+from __future__ import annotations
+
+from typing import Any
 import numpy as np
-from scipy.optimize import OptimizeResult, differential_evolution
+import numpy.typing as npt
+import cma
+from scipy.optimize import OptimizeResult, minimize
 from .datatypes import OptimizationParameter, Spec
 
 
-class Optimizer:
-    """
-    Optimizes a circuit design using differential evolution.
+# Guard threshold: for x > _SOFTPLUS_LIN_THRESHOLD the function is linear (avoids exp overflow).
+_SOFTPLUS_LIN_THRESHOLD = 20.0
 
-    Attributes:
-        circuit: The circuit object with an evaluate_specs method.
-        parameters: A list of OptimizationParameter objects.
-        target_specs: A dictionary mapping spec names to Spec objects.
-        opt_params: The optimal parameters found after optimization.
-        result: The optimization result from differential evolution.
-    """
+
+def _softplus(x: float, beta: float = 20.0) -> float:
+    """Smooth, differentiable approximation of max(0, x)."""
+    if x > _SOFTPLUS_LIN_THRESHOLD / beta:
+        return x
+    return float(np.log1p(np.exp(beta * x)) / beta)
+
+
+class Optimizer:
+    """Optimizes a circuit design using CMA-ES followed by SLSQP polishing."""
 
     def __init__(
         self,
         circuit: Any,
-        parameters: List[OptimizationParameter],
-        target_specs: Dict[str, Spec],
+        parameters: list[OptimizationParameter],
+        target_specs: dict[str, Spec],
     ) -> None:
         self.circuit = circuit
         self.parameters = parameters
         self.target_specs = target_specs
-        self.opt_params: Optional[Dict[str, float]] = None
-        self.result: Optional[OptimizeResult] = None
+        self.opt_params: dict[str, float] | None = None
+        self.result: OptimizeResult | None = None
 
-    @staticmethod
-    def compute_cost(specs: Dict[str, float], target_specs: Dict[str, Spec]) -> float:
+    def compute_cost(self, specs: dict[str, float]) -> float:
         """
-        Computes the cost based on actual circuit specifications and target specifications.
+        Scalar cost for a given set of circuit specs against the targets.
 
-        Args:
-            specs: A dictionary of actual circuit specifications.
-            target_specs: A dictionary mapping specification names to Spec objects.
-
-        Returns:
-            The computed cost as a float.
+        "max" specs use log-scale normalisation so that large violations
+        (e.g. CMRR 10× below target) produce proportionally larger gradients
+        than a linearisation would. "min" specs use linear normalisation,
+        which is appropriate for quantities that vary by small factors, and
+        include a secondary term that keeps cost non-zero when satisfied so
+        the optimizer continues driving them down.
         """
         cost = 0.0
-        for key, spec_target in target_specs.items():
-            target = spec_target.target
-            mode = spec_target.mode
-            weight = spec_target.weight
+        for key, spec in self.target_specs.items():
             actual = specs[key]
-            error = 0.0
-            if mode == "min":
-                error = max(0, (actual - target) / target)
-            elif mode == "max" and actual < target:
-                error = max(0, (target - actual) / target)
-            cost += weight * (error**2)
+            target = spec.target
+
+            if spec.mode == "min":
+                raw = (actual - target) / target
+                violation = _softplus(raw)
+                secondary = max(0.0, actual / target)
+                cost += spec.weight * (violation ** 2 + 0.05 * secondary)
+
+            elif spec.mode == "max":
+                ratio = target / actual if actual > 0 else np.inf
+                raw = float(np.log(ratio)) if np.isfinite(ratio) else 100.0
+                violation = _softplus(raw)
+                cost += spec.weight * (violation ** 2)
+
         return cost
 
-    def _transform_params(self, x: List[float]) -> Dict[str, float]:
-        """
-        Transforms optimizer variables into actual parameter values.
-        Handles continuous and discrete bounds.
-        """
-        params: Dict[str, float] = {}
+    def _transform_params(self, x: list[float] | npt.NDArray) -> dict[str, float]:
+        params: dict[str, float] = {}
         for i, param in enumerate(self.parameters):
             bound = param.bound
             if isinstance(bound, (list, np.ndarray)):
-                # Discrete parameter: x is an index in [0, len(bound)-1]
-                idx = int(round(x[i]))
-                idx = max(0, min(idx, len(bound) - 1))
+                idx = max(0, min(int(round(x[i])), len(bound) - 1))
                 params[param.name] = float(np.array(bound)[idx])
             else:
-                # Continuous parameter
-                params[param.name] = x[i]
+                params[param.name] = float(x[i])
         return params
 
-    def _objective(self, x: List[float]) -> float:
-        """
-        Objective function for optimization.
-
-        Args:
-            x: A list of optimizer variables.
-
-        Returns:
-            The cost computed for the given parameter values.
-        """
+    def _objective(self, x: list[float] | npt.NDArray) -> float:
         params = self._transform_params(x)
         specs = self.circuit.evaluate_specs(**params)
-        return self.compute_cost(specs, self.target_specs)
+        return self.compute_cost(specs)
 
-    def optimize(self, maxiter: int = 10) -> OptimizeResult:
-        """
-        Runs the differential evolution optimization.
-
-        Args:
-            maxiter: Maximum number of iterations for the optimizer (default: 10).
-
-        Returns:
-            The optimization result.
-        """
+    def _get_bounds(self) -> list[tuple[float, float]]:
         bounds = []
         for param in self.parameters:
             bound = param.bound
             if isinstance(bound, (list, np.ndarray)):
-                # Discrete parameter: search index range
                 bounds.append((0, len(bound) - 1))
             else:
                 bounds.append(bound)
+        return bounds
 
-        self.result = differential_evolution(
+    def _run_cma(
+        self,
+        x0_norm: npt.NDArray,
+        lbs: npt.NDArray,
+        ubs: npt.NDArray,
+        maxiter: int,
+        sigma0: float,
+        seed: int,
+    ) -> tuple[npt.NDArray, float, int]:
+        n = len(lbs)
+
+        def objective_normalised(x_norm: npt.NDArray) -> float:
+            return self._objective(lbs + x_norm * (ubs - lbs))
+
+        opts = cma.CMAOptions()
+        opts["bounds"] = [[0.0] * n, [1.0] * n]
+        opts["maxiter"] = maxiter
+        opts["seed"] = seed
+        opts["verbose"] = 1
+        opts["tolx"] = 1e-5
+        opts["tolfun"] = 1e-5
+
+        es = cma.CMAEvolutionStrategy(x0_norm, sigma0, opts)
+        es.optimize(objective_normalised)
+
+        best_x = lbs + es.result.xbest * (ubs - lbs)
+        return best_x, float(es.result.fbest), int(es.result.iterations)
+
+    def optimize(
+        self,
+        maxiter: int = 500,
+        sigma0: float = 0.3,
+        n_restarts: int = 1,
+        seed: int = 42,
+    ) -> OptimizeResult:
+        """
+        Run CMA-ES (with optional random restarts) then polish with SLSQP.
+
+        Args:
+            maxiter: Maximum CMA-ES iterations per restart.
+            sigma0: Initial step size as a fraction of the normalised [0, 1] search space.
+            n_restarts: Number of independent CMA-ES runs. The first starts from the
+                centre of the search space; subsequent ones from random points. Increase
+                beyond 1 only if results are inconsistent across runs (multimodal landscape).
+            seed: Base random seed; restart i uses seed + i for reproducibility.
+        """
+        bounds = self._get_bounds()
+        lbs = np.array([b[0] for b in bounds], dtype=float)
+        ubs = np.array([b[1] for b in bounds], dtype=float)
+        rng = np.random.default_rng(seed)
+
+        best_x: npt.NDArray = np.empty(len(bounds))
+        best_cost = np.inf
+        total_iters = 0
+
+        for i in range(n_restarts):
+            x0_norm = np.full(len(bounds), 0.5) if i == 0 else rng.uniform(0.1, 0.9, len(bounds))
+            print(f"\n--- CMA-ES restart {i + 1}/{n_restarts} ---")
+            x, cost, iters = self._run_cma(x0_norm, lbs, ubs, maxiter, sigma0, seed + i)
+            total_iters += iters
+            if cost < best_cost:
+                best_cost = cost
+                best_x = x
+
+        print(f"\nBest CMA-ES cost across {n_restarts} restart(s): {best_cost:.6g}")
+        print("Polishing with SLSQP...")
+
+        polish = minimize(
             self._objective,
-            bounds,
-            disp=True,
-            maxiter=maxiter,
-            polish=True
+            best_x,
+            method="SLSQP",
+            bounds=bounds,
+            options={"maxiter": 500, "ftol": 1e-9},
         )
 
-        # Decode optimal parameters from result.x
-        opt_params: Dict[str, float] = {}
-        for i, param in enumerate(self.parameters):
-            bound = param.bound
-            if isinstance(bound, (list, np.ndarray)):
-                idx = int(round(self.result.x[i]))
-                idx = max(0, min(idx, len(bound) - 1))
-                opt_params[param.name] = float(np.array(bound)[idx])
-            else:
-                opt_params[param.name] = self.result.x[i]
+        if polish.fun < best_cost:
+            best_x, best_cost = polish.x, polish.fun
+            print(f"SLSQP improved cost to {best_cost:.6g}")
+        else:
+            print("SLSQP did not improve on CMA-ES result.")
 
-        self.opt_params = opt_params
+        self.opt_params = self._transform_params(best_x)
+        self.result = OptimizeResult(
+            x=best_x,
+            fun=best_cost,
+            success=True,
+            message="CMA-ES + SLSQP optimization complete.",
+            nit=total_iters,
+        )
         return self.result
 
-    def get_opt_params(self) -> Dict[str, float]:
-        """
-        Returns the optimal parameters found after optimization.
-
-        Returns:
-            A dictionary of optimal parameters.
-        """
+    def get_opt_params(self) -> dict[str, float]:
         if self.opt_params is None:
             raise ValueError("Optimization has not been performed yet.")
         return self.opt_params
-

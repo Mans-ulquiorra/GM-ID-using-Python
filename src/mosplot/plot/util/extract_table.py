@@ -1,11 +1,14 @@
 # imports <<<
-from typing import Any, Dict, Optional, Tuple, Union
+from __future__ import annotations
+
+import warnings
+
 import numpy as np
 import numpy.typing as npt
 # >>>
 
 
-def tile_arrays(A: npt.NDArray, B: npt.NDArray) -> Tuple[npt.NDArray, npt.NDArray]:
+def tile_arrays(A: npt.NDArray, B: npt.NDArray) -> tuple[npt.NDArray, npt.NDArray]:
     if A.ndim == 1 and B.ndim == 2:
         if A.shape[0] == B.shape[0]:
             return np.tile(A, (B.shape[1], 1)).T, B
@@ -16,20 +19,22 @@ def tile_arrays(A: npt.NDArray, B: npt.NDArray) -> Tuple[npt.NDArray, npt.NDArra
             return A, np.tile(B, (A.shape[1], 1)).T
         elif B.shape[0] == A.shape[1]:
             return A, np.tile(B, (A.shape[0], 1))
+    elif A.ndim == 2 and B.ndim == 2:
+        warnings.warn(f"tile_arrays: unexpected shapes A={A.shape}, B={B.shape}; returning unchanged")
     return A, B
 
 def extract_2d_table(
     lookup_table: dict,
-    length: Optional[Union[float, list, npt.NDArray]] = None,
-    vbs: Optional[Union[float, Tuple[float, float], Tuple[float, float, float]]] = None,
-    vgs: Optional[Union[float, Tuple[float, float], Tuple[float, float, float]]] = None,
-    vds: Optional[Union[float, Tuple[float, float], Tuple[float, float, float]]] = None,
-    primary: Optional[str] = None,
-    parameters: Optional[list] = None,
-) -> Tuple[Optional[str], Dict, dict]:
+    length: float | list | npt.NDArray | None = None,
+    vbs: float | tuple[float, float] | tuple[float, float, float] | None = None,
+    vgs: float | tuple[float, float] | tuple[float, float, float] | None = None,
+    vds: float | tuple[float, float] | tuple[float, float, float] | None = None,
+    primary: str | None = None,
+    parameters: list | None = None,
+) -> tuple[str | None, dict, dict]:
     # Ensure at least two sweep parameters are provided.
     if sum(param is not None for param in [length, vbs, vgs, vds]) < 2:
-        raise ValueError("Provide at least two parameters.")
+        raise ValueError("Provide at least two of: length, vbs, vgs, vds.")
 
     def process_target(data: np.ndarray, target, var_name: str):
         if isinstance(target, tuple):
@@ -88,7 +93,7 @@ def extract_2d_table(
         return np.array([idx]), data[idx], True
 
     # Slice a 4D array using indices for each axis.
-    def apply_slice(a: npt.NDArray, slices: Tuple) -> npt.NDArray:
+    def apply_slice(a: npt.NDArray, slices: tuple) -> npt.NDArray:
         s = a[slices[0], :, :, :]
         s = s[:, slices[1], :, :]
         s = s[:, :, slices[2], :]
@@ -139,17 +144,16 @@ def extract_2d_table(
     }
 
 
-    if parameters is None:
-        parameters = lookup_table.get("parameter_names", [])
+    params: list = parameters if parameters is not None else list(lookup_table.get("parameter_names", []))
 
     # Precompute keys with 4D data.
-    keys_4d = [p for p in parameters if p in lookup_table and lookup_table[p].ndim == 4]
+    keys_4d = [p for p in params if p in lookup_table and lookup_table[p].ndim == 4]
     if not keys_4d:
         raise ValueError("No parameter with 4 dimensions found for tiling.")
     reference_key = keys_4d[0]
 
     extracted_table = {}
-    for p in parameters:
+    for p in params:
         if p not in lookup_table:
             continue
         data = lookup_table[p]

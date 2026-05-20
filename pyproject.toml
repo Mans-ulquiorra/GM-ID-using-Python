@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mosplot"
+version = "0.5.0"
+description = "Mosfet plotting and simulation package."
+authors = [
+    { name = "Mohamed Watfa", email = "medwatt@hotmail.com" }
+]
+requires-python = ">=3.9"
+dependencies = [
+    "numpy",
+    "matplotlib",
+    "scipy",
+    "cma",
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+Homepage = "https://github.com/medwatt/gmid"
+
+[tool.setuptools.packages.find]
+where = ["src"]

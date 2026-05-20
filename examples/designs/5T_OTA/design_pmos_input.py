@@ -192,15 +192,15 @@ if __name__ == "__main__":
         "Gain":      Spec(10 ** (30 / 20), "max", 5),
         "Ibias":     Spec(20e-6, "min", 1),
         "SlewRate":  Spec(5e6, "min", 1),
-        "ICMR_LOW":  Spec(0.1, "min", 1),
+        "ICMR_LOW":  Spec(0.1, "min", 5),
         "ICMR_HIGH": Spec(0.65, "max", 5),
         "CMRR":      Spec(10 ** (70 / 20), "max", 1),
-        "Area":      Spec(5e-12, "min", 0.1)
+        "Area":      Spec(5e-12, "min", 1)
     }
 
     # Instantiate and run the optimizer.
     optimizer = Optimizer(circuit, parameters, target_specs)
-    result = optimizer.optimize(maxiter=30)
+    result = optimizer.optimize(maxiter=100)
 
     # Generate and print the design report.
     report = DesignReport(circuit, optimizer)
