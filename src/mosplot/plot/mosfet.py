@@ -79,6 +79,8 @@ class Mosfet:
         self.vgs = self.filtered_variables["vgs"]
         self.vds = self.filtered_variables["vds"]
         self._interpolator_cache: dict = {}
+        self._init_params = {"length": length, "vbs": vbs, "vgs": vgs, "vds": vds}
+        self._axis_sort_cache: dict = {}
 
         self.length_expression  = Expression(variables=["length"],  label="$\\mathrm{Length}\\ (m)$")
         self.vbs_expression     = Expression(variables=["vbs"],     label="$V_{\\mathrm{BS}}\\ (V)$")
@@ -505,6 +507,40 @@ class Mosfet:
         )
     # >>>
 
+    # _bracket_axis <<<
+    def _bracket_axis(self, axis: str, value: float) -> tuple[int, int, float]:
+        if axis not in self._axis_sort_cache:
+            sort_idx = np.argsort(self.lookup_table[axis])
+            self._axis_sort_cache[axis] = (sort_idx, self.lookup_table[axis][sort_idx])
+        sort_idx, sorted_grid = self._axis_sort_cache[axis]
+        clamped = float(np.clip(value, sorted_grid[0], sorted_grid[-1]))
+        pos = int(np.searchsorted(sorted_grid, clamped))
+        i_hi = min(pos, len(sorted_grid) - 1)
+        i_lo = max(i_hi - 1, 0)
+        orig_lo, orig_hi = int(sort_idx[i_lo]), int(sort_idx[i_hi])
+        v_lo, v_hi = float(sorted_grid[i_lo]), float(sorted_grid[i_hi])
+        t = 0.0 if i_lo == i_hi else (clamped - v_lo) / (v_hi - v_lo)
+        return orig_lo, orig_hi, t
+    # >>>
+
+    # _get_interpolator_at_axis <<<
+    def _get_interpolator_at_axis(
+        self,
+        axis: str,
+        axis_idx: int,
+        x_expression: Expression,
+        y_expression: Expression,
+        fast: bool,
+    ) -> KDTreeInterpolator | GridInterpolator:
+        key = (fast, id(x_expression), id(y_expression), axis, axis_idx)
+        if key not in self._interpolator_cache:
+            params = {**self._init_params, axis: float(self.lookup_table[axis][axis_idx])}
+            _, _, table = extract_2d_table(lookup_table=self.lookup_table, **params)
+            cls = KDTreeInterpolator if fast else GridInterpolator
+            self._interpolator_cache[key] = cls(table, x_expression, y_expression)
+        return self._interpolator_cache[key]
+    # >>>
+
     # interpolate <<<
     def interpolate(
         self,
@@ -514,23 +550,49 @@ class Mosfet:
         y_expression: Expression,
         y_value: float | tuple[float, float] | np.ndarray,
         z_expression: Expression | list[Expression],
+        sweep: tuple[str, float] | None = None,
         fast: bool = False
     ) -> np.ndarray | list[np.ndarray]:
         """
         Interpolates z values given x and y expressions.
 
+        The x and y expressions define the two axes of a scattered-data surface built
+        from every point in the extracted table. The interpolator finds where that surface
+        evaluates to z at the queried (x_value, y_value); no data is discarded.
+
+        sweep, if provided, is a (axis, value) pair where axis is one of "length", "vbs",
+        "vgs", or "vds". Instead of using the single extracted table, two separate 2-D
+        surfaces are built, one at each of the two raw grid points that bracket the
+        requested value, and the final result is linearly blended between them. This gives
+        an accurate result at any continuous axis value without re-extracting the table on
+        every call. Both surfaces are cached, so repeated calls whose value falls in the
+        same bracket cost only two evaluations and a blend.
+
         Args:
-            x_expression: Expression for the x-axis.
-            x_value: Value(s) for the x-axis interpolation domain.
-            y_expression: Expression for the y-axis.
-            y_value: Value(s) for the y-axis interpolation domain.
-            z_expression: Expression or list of expressions for the z values.
-            fast: If True, use KDTree-based interpolation; otherwise, use griddata.
+            x_expression: Expression for the x-axis of the interpolation surface.
+            x_value: Query value(s) for the x-axis.
+            y_expression: Expression for the y-axis of the interpolation surface.
+            y_value: Query value(s) for the y-axis.
+            z_expression: Expression or list of expressions to interpolate.
+            sweep: Optional (axis, value) pair for continuous interpolation along a
+                   raw grid axis ("length", "vbs", "vgs", or "vds").
+            fast: If True, use KDTree-based IDW interpolation; otherwise use griddata cubic.
 
         Returns:
-            A single interpolated numpy array if z_expression is a single Expression,
-            or a list of interpolated numpy arrays if a list is provided.
+            A single interpolated array if z_expression is a single Expression,
+            or a list of arrays if a list is provided.
         """
+        if sweep is not None:
+            axis, value = sweep
+            idx_lo, idx_hi, t = self._bracket_axis(axis, value)
+            interp_lo = self._get_interpolator_at_axis(axis, idx_lo, x_expression, y_expression, fast)
+            interp_hi = self._get_interpolator_at_axis(axis, idx_hi, x_expression, y_expression, fast)
+            res_lo = interp_lo.interpolate(x_value, y_value, z_expression)
+            res_hi = interp_hi.interpolate(x_value, y_value, z_expression)
+            if isinstance(z_expression, list):
+                return [lo + t * (hi - lo) for lo, hi in zip(res_lo, res_hi)]
+            return cast(np.ndarray, res_lo) + t * (cast(np.ndarray, res_hi) - cast(np.ndarray, res_lo))
+
         key = (fast, id(x_expression), id(y_expression))
         if key not in self._interpolator_cache:
             cls = KDTreeInterpolator if fast else GridInterpolator

@@ -53,9 +53,11 @@ class SpectreSimulator(BaseSimulator):
 
     def setup_dc_simulation(self, sweep):
         symbol = self.mos_spice_symbols[1]
+        id_terminal = "p" if sweep.mos_type == "pmos" else "n"
+        id_probe = f"VDS:{id_terminal}"
 
         self.parameter_table = {
-            "id":    f"{symbol}:id",
+            "id":    id_probe,
             "vth":   f"{symbol}:vth",
             "vdsat": f"{symbol}:vdsat",
             "gm":    f"{symbol}:gm",
@@ -79,7 +81,7 @@ class SpectreSimulator(BaseSimulator):
 
         return [
             f"o_temp options temp={self.temperature} tnom={self.temperature}",
-            f"save {symbol}:oppoint",
+            f"save {symbol}:oppoint {id_probe}",
             f"vgs_swp sweep param=dc dev=VGS start={vgs_start} stop={vgs_stop} step={vgs_step} {{",
             f"    vds_dc dc param=dc dev=VDS start={vds_start} stop={vds_stop} step={vds_step}",
             "}",

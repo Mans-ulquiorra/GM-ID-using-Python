@@ -13,10 +13,16 @@ _EPS_ZERO_DIST = 1e-12  # distance below which a point is treated as an exact hi
 
 
 def _prepare_eval_points(
-    x_value: float | tuple,
-    y_value: float | tuple,
+    x_value: float | tuple | np.ndarray,
+    y_value: float | tuple | np.ndarray,
 ) -> np.ndarray:
-    """Return a (N, 2) array of query points from scalars or (start, stop[, step]) tuples."""
+    """Return a (N, 2) array of query points from scalars, (start, stop[, step]) tuples, or arrays."""
+    if isinstance(x_value, np.ndarray) and isinstance(y_value, (int, float)):
+        return np.column_stack((x_value, np.full_like(x_value, y_value)))
+    if isinstance(y_value, np.ndarray) and isinstance(x_value, (int, float)):
+        return np.column_stack((np.full_like(y_value, x_value), y_value))
+    if isinstance(x_value, np.ndarray) and isinstance(y_value, np.ndarray):
+        return np.column_stack((x_value, y_value))
     if isinstance(x_value, tuple) and isinstance(y_value, (int, float)):
         x_vals = np.arange(*x_value)
         return np.column_stack((x_vals, np.full_like(x_vals, y_value)))
@@ -45,8 +51,8 @@ class GridInterpolator:
 
     def interpolate(
         self,
-        x_value: float | tuple,
-        y_value: float | tuple,
+        x_value: float | tuple | np.ndarray,
+        y_value: float | tuple | np.ndarray,
         z_expression: Expression | list[Expression],
     ) -> np.ndarray | list[np.ndarray]:
         eval_points = _prepare_eval_points(x_value, y_value)
@@ -94,8 +100,8 @@ class KDTreeInterpolator:
 
     def interpolate(
         self,
-        x_value: float | tuple,
-        y_value: float | tuple,
+        x_value: float | tuple | np.ndarray,
+        y_value: float | tuple | np.ndarray,
         z_expression: Expression | list[Expression],
     ) -> np.ndarray | list[np.ndarray]:
         eval_pts = _prepare_eval_points(x_value, y_value)
