@@ -63,12 +63,13 @@ class NgspiceSimulator(BaseSimulator):
 
     def setup_dc_simulation(self, sweep):
         symbol = self.mos_spice_symbols[1]
+        v_sign = "-" if sweep.mos_type == "pmos" else ""
         self.parameter_table = {
             "id":     ["save i(vds)",             "i(i_vds)"],
             "weff":   [f"save @{symbol}[weff]",   f"v(@{symbol}[weff])"],
-            "vth":    [f"save @{symbol}[vth]",    f"v(@{symbol}[vth])"],
-            "vdsat":  [f"save @{symbol}[vdsat]",  f"v(@{symbol}[vdsat])"],
-            "vdssat": [f"save @{symbol}[vdssat]", f"v(@{symbol}[vdssat])"],
+            "vth":    [f"save @{symbol}[vth]",    "v(m_vth)"],
+            "vdsat":  [f"save @{symbol}[vdsat]",  "v(m_vdsat)"],
+            "vdssat": [f"save @{symbol}[vdssat]", "v(m_vdssat)"],
             "gm":     [f"save @{symbol}[gm]",     f"@{symbol}[gm]"],
             "gmbs":   [f"save @{symbol}[gmbs]",   f"@{symbol}[gmbs]"],
             "gds":    [f"save @{symbol}[gds]",    f"@{symbol}[gds]"],
@@ -85,7 +86,6 @@ class NgspiceSimulator(BaseSimulator):
         osdi = None
         if self.osdi_paths:
             osdi = "\n".join([f"pre_osdi {p}" for p in self.osdi_paths])
-        polarity = "-" if sweep.mos_type == "nmos" else ""
         return [
             f".options TEMP = {self.temperature}",
             f".options TNOM = {self.temperature}",
@@ -93,7 +93,10 @@ class NgspiceSimulator(BaseSimulator):
             osdi,
             "\n".join([val[0] for val in self.parameter_table.values()]),
             analysis_string,
-            f"let i_vds = {polarity}i(vds)",
+            "let i_vds     = abs(i(vds))",
+            f"let m_vth    = {v_sign}abs(@{symbol}[vth])",
+            f"let m_vdsat  = {v_sign}abs(@{symbol}[vdsat])",
+            f"let m_vdssat = {v_sign}abs(@{symbol}[vdssat])",
             f"write {self.output_file_path} all",
             ".endc",
             ".end",

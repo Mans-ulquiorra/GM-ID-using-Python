@@ -20,8 +20,8 @@ class SmallSignalSolver:
 
     Modeling assumptions
     --------------------
-    * ``inp`` and ``inn`` are ideal independent voltage sources. They are
-      removed from the matrix and moved to the RHS as known values.
+    * ``inputs`` maps ideal independent voltage-source nodes to their AC
+      amplitudes. These nodes are removed from the matrix and moved to the RHS.
     * Ground, supply, and ideal bias-source nodes should be named ``"gnd"`` by
       the caller or topology builder.
     * MOS stamps use caller-provided polarity. ``gm`` and optional ``gmb`` are
@@ -131,11 +131,11 @@ class SmallSignalSolver:
     def solve(
         self,
         *,
-        inp: str,
-        inn: str,
+        inputs: dict[str, float],
         out: str,
+        cm_inputs: dict[str, float] | None = None,
         gbw_iters: int = 32,
-        compute_cmrr: bool = True,
+        compute_cmrr: bool = False,
         compute_gbw: bool = True,
         compute_phase_margin: bool = True,
     ) -> SmallSignalResult:
@@ -150,8 +150,8 @@ class SmallSignalSolver:
         return model.solve(
             mos_values,
             cap_values,
-            inp=inp,
-            inn=inn,
+            inputs=inputs,
+            cm_inputs=cm_inputs,
             out=out,
             gbw_iters=gbw_iters,
             compute_cmrr=compute_cmrr,

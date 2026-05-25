@@ -24,17 +24,19 @@ def build_ss_model(
     vsources:       list[VSource],
     ss_params:      dict[str, dict[str, float]],
     passive_params: dict[str, float],
+    signal_nodes:   set[str] | frozenset[str] | None = None,
 ) -> SmallSignalSolver:
     """Stamp a SmallSignalSolver from topology and computed per-element parameters.
 
     ac_ground is derived automatically: supply rails (vdd, vss) plus any node
-    driven by a VSource.  All nodes in ac_ground are remapped to "gnd" before
-    stamping so the solver treats them as AC-zero.
+    driven by a VSource, excluding nodes listed in signal_nodes. All nodes in
+    ac_ground are remapped to "gnd" so the solver treats them as AC-zero.
 
     ss_params keys per instance: gm, gds, and optionally gmb, cgs, cgd, cdd.
     Cap values are taken as absolute values (lookup tables may return negative).
     """
-    ac_ground: frozenset[str] = _SUPPLY_NODES | frozenset(vs.p for vs in vsources)
+    signal_nodes = frozenset(signal_nodes or ())
+    ac_ground: frozenset[str] = (_SUPPLY_NODES | frozenset(vs.p for vs in vsources)) - signal_nodes
 
     def _n(node: str) -> str:
         return "gnd" if node in ac_ground else node

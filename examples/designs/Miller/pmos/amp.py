@@ -200,29 +200,29 @@ class Circuit:
         COUT = self.cout
 
         # --- Lookup state ---
-        M1a_VGS = M1a_VDSAT = M1a_gm = M1a_gdsid = 0.0
-        M1a_cgs = M1a_cgd = M1a_cdd = M1a_JD = M1a_early = 0.0
+        M1a_VGS = M1a_VDSAT = M1a_gdsid = 0.0
+        M1a_cgs = M1a_cgd = M1a_cdd = M1a_JD = 0.0
         M1a_W = M1a_VDS = M1a_VSB = 0.0
-        M1b_VGS = M1b_VDSAT = M1b_gm = M1b_gdsid = 0.0
-        M1b_cgs = M1b_cgd = M1b_cdd = M1b_JD = M1b_early = 0.0
+        M1b_VGS = M1b_VDSAT = M1b_gdsid = 0.0
+        M1b_cgs = M1b_cgd = M1b_cdd = 0.0
         M1b_W = M1b_L = M1b_ID = M1b_VDS = M1b_VSB = 0.0
-        M2a_VGS = M2a_VDSAT = M2a_gm = M2a_gdsid = 0.0
-        M2a_cgs = M2a_cgd = M2a_cdd = M2a_JD = M2a_early = 0.0
+        M2a_VGS = M2a_gdsid = 0.0
+        M2a_cgs = M2a_cgd = M2a_cdd = M2a_JD = 0.0
         M2a_W = M2a_ID = M2a_VDS = M2a_VSB = 0.0
-        M2b_VGS = M2b_VDSAT = M2b_gm = M2b_gdsid = 0.0
-        M2b_cgs = M2b_cgd = M2b_cdd = M2b_JD = M2b_early = 0.0
+        M2b_VGS = M2b_gdsid = 0.0
+        M2b_cgs = M2b_cgd = M2b_cdd = 0.0
         M2b_W = M2b_L = M2b_ID = M2b_VDS = M2b_VSB = 0.0
-        M3_VGS = M3_VDSAT = M3_gm = M3_gdsid = 0.0
-        M3_cgs = M3_cgd = M3_cdd = M3_JD = M3_early = 0.0
+        M3_VGS = M3_VDSAT = M3_gdsid = 0.0
+        M3_cgs = M3_cgd = M3_cdd = M3_JD = 0.0
         M3_W = M3_ID = M3_VDS = M3_VSB = 0.0
-        M4_VGS = M4_VDSAT = M4_gm = M4_gdsid = 0.0
-        M4_cgs = M4_cgd = M4_cdd = M4_JD = M4_early = 0.0
+        M4_VGS = M4_VDSAT = M4_gdsid = 0.0
+        M4_cgs = M4_cgd = M4_cdd = M4_JD = 0.0
         M4_W = M4_ID = M4_VDS = M4_VSB = 0.0
-        M5_VGS = M5_VDSAT = M5_gm = M5_gdsid = 0.0
-        M5_cgs = M5_cgd = M5_cdd = M5_JD = M5_early = 0.0
+        M5_VGS = M5_VDSAT = M5_gdsid = 0.0
+        M5_cgs = M5_cgd = M5_cdd = 0.0
         M5_W = M5_L = M5_ID = M5_VDS = M5_VSB = 0.0
-        Mvbp_VGS = Mvbp_VDSAT = Mvbp_gm = Mvbp_gdsid = 0.0
-        Mvbp_cgs = Mvbp_cgd = Mvbp_cdd = Mvbp_JD = Mvbp_early = 0.0
+        Mvbp_VGS = 0.0
+        Mvbp_JD = 0.0
         Mvbp_W = Mvbp_L = Mvbp_ID = Mvbp_VDS = Mvbp_VSB = 0.0
 
         # --- Initial guesses (loop-carried values) ---
@@ -264,17 +264,7 @@ class Circuit:
         for _ in range(self.fixed_point_iterations):
             # --- Phase A: lookup all devices ---
             # M1a -- PMOS
-            (
-                M1a_VGS,
-                M1a_VDSAT,
-                M1a_gm,
-                M1a_gdsid,
-                M1a_cgs,
-                M1a_cgd,
-                M1a_cdd,
-                M1a_JD,
-                M1a_early,
-            ) = [
+            (M1a_VGS, M1a_VDSAT, M1a_gdsid, M1a_cgs, M1a_cgd, M1a_cdd, M1a_JD) = [
                 scalar(x)
                 for x in self.pmos.interpolate(
                     length=M1a_L,
@@ -284,13 +274,11 @@ class Circuit:
                     expression=[
                         self.pmos.vsg_expression,
                         self.pmos.vdsat_expression,
-                        self.pmos.gm_expression,
                         self._gdsid,
                         self.pmos.cgs_expression,
                         self.pmos.cgd_expression,
                         self.pmos.cdd_expression,
                         self.pmos.current_density_expression,
-                        self.pmos.early_voltage_expression,
                     ],
                 )
             ]
@@ -304,17 +292,7 @@ class Circuit:
             M1b_VGS = M1a_VGS
             M1b_L = M1a_L
             M1b_ID = M1a_ID
-            (
-                M1b_VGS,
-                M1b_VDSAT,
-                M1b_gm,
-                M1b_gdsid,
-                M1b_cgs,
-                M1b_cgd,
-                M1b_cdd,
-                M1b_JD,
-                M1b_early,
-            ) = [
+            (M1b_VGS, M1b_VDSAT, M1b_gdsid, M1b_cgs, M1b_cgd, M1b_cdd) = [
                 scalar(x)
                 for x in self.pmos.interpolate(
                     length=M1b_L,
@@ -324,32 +302,18 @@ class Circuit:
                     expression=[
                         self.pmos.vsg_expression,
                         self.pmos.vdsat_expression,
-                        self.pmos.gm_expression,
                         self._gdsid,
                         self.pmos.cgs_expression,
                         self.pmos.cgd_expression,
                         self.pmos.cdd_expression,
-                        self.pmos.current_density_expression,
-                        self.pmos.early_voltage_expression,
                     ],
                 )
             ]
             M1b_VDSAT = abs(M1b_VDSAT)
-            M1b_JD = abs(M1b_JD)
 
             # M2a -- NMOS
             M2a_ID = M1a_ID
-            (
-                M2a_VGS,
-                M2a_VDSAT,
-                M2a_gm,
-                M2a_gdsid,
-                M2a_cgs,
-                M2a_cgd,
-                M2a_cdd,
-                M2a_JD,
-                M2a_early,
-            ) = [
+            (M2a_VGS, M2a_gdsid, M2a_cgs, M2a_cgd, M2a_cdd, M2a_JD) = [
                 scalar(x)
                 for x in self.nmos.interpolate(
                     length=M2a_L,
@@ -358,25 +322,21 @@ class Circuit:
                     vbs=-abs(M2a_VSB),
                     expression=[
                         self.nmos.vgs_expression,
-                        self.nmos.vdsat_expression,
-                        self.nmos.gm_expression,
                         self._gdsid,
                         self.nmos.cgs_expression,
                         self.nmos.cgd_expression,
                         self.nmos.cdd_expression,
                         self.nmos.current_density_expression,
-                        self.nmos.early_voltage_expression,
                     ],
                 )
             ]
-            M2a_VDSAT = abs(M2a_VDSAT)
             M2a_JD = abs(M2a_JD)
             if M2a_W == 0.0:
                 M2a_W = M2a_ID / M2a_JD
 
             # M3 -- PMOS
             M3_ID = M1a_ID + M1b_ID
-            (M3_VGS, M3_VDSAT, M3_gm, M3_gdsid, M3_cgs, M3_cgd, M3_cdd, M3_JD, M3_early) = [
+            (M3_VGS, M3_VDSAT, M3_gdsid, M3_cgs, M3_cgd, M3_cdd, M3_JD) = [
                 scalar(x)
                 for x in self.pmos.interpolate(
                     length=M3_L,
@@ -386,13 +346,11 @@ class Circuit:
                     expression=[
                         self.pmos.vsg_expression,
                         self.pmos.vdsat_expression,
-                        self.pmos.gm_expression,
                         self._gdsid,
                         self.pmos.cgs_expression,
                         self.pmos.cgd_expression,
                         self.pmos.cdd_expression,
                         self.pmos.current_density_expression,
-                        self.pmos.early_voltage_expression,
                     ],
                 )
             ]
@@ -403,7 +361,7 @@ class Circuit:
 
             # M4 -- NMOS
             M4_ID = M5_ID
-            (M4_VGS, M4_VDSAT, M4_gm, M4_gdsid, M4_cgs, M4_cgd, M4_cdd, M4_JD, M4_early) = [
+            (M4_VGS, M4_VDSAT, M4_gdsid, M4_cgs, M4_cgd, M4_cdd, M4_JD) = [
                 scalar(x)
                 for x in self.nmos.interpolate(
                     length=M4_L,
@@ -413,13 +371,11 @@ class Circuit:
                     expression=[
                         self.nmos.vgs_expression,
                         self.nmos.vdsat_expression,
-                        self.nmos.gm_expression,
                         self._gdsid,
                         self.nmos.cgs_expression,
                         self.nmos.cgd_expression,
                         self.nmos.cdd_expression,
                         self.nmos.current_density_expression,
-                        self.nmos.early_voltage_expression,
                     ],
                 )
             ]
@@ -433,17 +389,7 @@ class Circuit:
             M2b_VGS = M2a_VGS
             M2b_L = M2a_L
             M2b_ID = M2a_ID
-            (
-                M2b_VGS,
-                M2b_VDSAT,
-                M2b_gm,
-                M2b_gdsid,
-                M2b_cgs,
-                M2b_cgd,
-                M2b_cdd,
-                M2b_JD,
-                M2b_early,
-            ) = [
+            (M2b_VGS, M2b_gdsid, M2b_cgs, M2b_cgd, M2b_cdd) = [
                 scalar(x)
                 for x in self.nmos.interpolate(
                     length=M2b_L,
@@ -452,26 +398,20 @@ class Circuit:
                     vbs=-abs(M2b_VSB),
                     expression=[
                         self.nmos.vgs_expression,
-                        self.nmos.vdsat_expression,
-                        self.nmos.gm_expression,
                         self._gdsid,
                         self.nmos.cgs_expression,
                         self.nmos.cgd_expression,
                         self.nmos.cdd_expression,
-                        self.nmos.current_density_expression,
-                        self.nmos.early_voltage_expression,
                     ],
                 )
             ]
-            M2b_VDSAT = abs(M2b_VDSAT)
-            M2b_JD = abs(M2b_JD)
 
             # M5 -- PMOS
             M5_W = M3_W * (W5_over_W3 * M3_mult)
             M5_VGS = M3_VGS
             M5_L = M3_L
             M5_ID = M3_ID
-            (M5_VGS, M5_VDSAT, M5_gm, M5_gdsid, M5_cgs, M5_cgd, M5_cdd, M5_JD, M5_early) = [
+            (M5_VGS, M5_VDSAT, M5_gdsid, M5_cgs, M5_cgd, M5_cdd) = [
                 scalar(x)
                 for x in self.pmos.interpolate(
                     length=M5_L,
@@ -481,30 +421,21 @@ class Circuit:
                     expression=[
                         self.pmos.vsg_expression,
                         self.pmos.vdsat_expression,
-                        self.pmos.gm_expression,
                         self._gdsid,
                         self.pmos.cgs_expression,
                         self.pmos.cgd_expression,
                         self.pmos.cdd_expression,
-                        self.pmos.current_density_expression,
-                        self.pmos.early_voltage_expression,
                     ],
                 )
             ]
             M5_VDSAT = abs(M5_VDSAT)
-            M5_JD = abs(M5_JD)
 
             # Mvbp -- PMOS
             Mvbp_W = M3_W
             Mvbp_VGS = M3_VGS
             Mvbp_L = M3_L
-            Mvbp_gm = M3_gm
-            Mvbp_gdsid = M3_gdsid
-            Mvbp_cgs = M3_cgs
-            Mvbp_cgd = M3_cgd
-            Mvbp_cdd = M3_cdd
+            Mvbp_VGS = M3_VGS
             Mvbp_JD = M3_JD
-            Mvbp_VDSAT = M3_VDSAT
             Mvbp_ID = Mvbp_W * Mvbp_JD
             Mvbp_VDS = Mvbp_VGS
 
@@ -658,11 +589,16 @@ class Circuit:
         }
         self.passive_params = {"Rz": Rz, "CC": CC, "COUT": COUT}
         ss = build_ss_model(
-            self.MOSFETS, self.PASSIVES, self.VSOURCES, ss_params, self.passive_params
+            self.MOSFETS,
+            self.PASSIVES,
+            self.VSOURCES,
+            ss_params,
+            self.passive_params,
+            signal_nodes={"VINP", "VINN"},
         )
         ac = ss.solve(
-            inp="VINP",
-            inn="VINN",
+            inputs={"VINP": 0.5, "VINN": -0.5},
+            cm_inputs={"VINP": 1.0, "VINN": 1.0},
             out="VOUT",
             compute_cmrr=True,
             compute_gbw=True,
@@ -682,8 +618,6 @@ class Circuit:
         )
         Itotal = M1a_ID + M1b_ID + M5_ID
         VBP = VDD - M3_VGS
-        VINP = VIN_CM
-        VINN = VIN_CM
         VOUT_MAX = -M5_VDSAT + VDD
         VOUT_MIN = max(M4_VDSAT, -M3_VGS + M4_VDSAT - VBP + VDD, M4_VDSAT - M5_VGS - VBP + VDD)
         VIN_MAX = -M1b_VGS - M3_VDSAT + VDD
@@ -718,12 +652,9 @@ class Circuit:
     def compute_vsource_params(self, opt_params: dict[str, float]) -> dict[str, float]:
         ops = self.device_operating_points
         VDD = self.vdd
-        VOUT_DC = self.vout_dc
-        VIN_CM = self.vin_cm
-        W5_over_W3 = opt_params.get("W5_over_W3", 0.0)
-        M3_mult = opt_params.get("M3_mult", 0.0)
-        CC = opt_params.get("CC", 0.0)
-        COUT = self.cout
+        opt_params.get("W5_over_W3", 0.0)
+        opt_params.get("M3_mult", 0.0)
+        opt_params.get("CC", 0.0)
         VBP = VDD - ops.get("M3", {}).get("VGS", 0.0)
         return {"VBP": VBP}
 
@@ -735,9 +666,9 @@ def build_circuit(**kwargs) -> Circuit:
 def _generate_simulation_netlist(optimizer: Optimizer, output_path: str) -> None:
     circuit = optimizer.circuit
     opt_params = optimizer.get_opt_params()
-    specs = circuit.evaluate_specs(**opt_params)
+    circuit.evaluate_specs(**opt_params)
     generator = SpectreGenerator(
-        name="a020006",
+        name="amp",
         ports=["VINN", "VINP", "VOUT", "vdd", "vss"],
         ground="vss",
         context={"vcm": circuit.vin_cm},

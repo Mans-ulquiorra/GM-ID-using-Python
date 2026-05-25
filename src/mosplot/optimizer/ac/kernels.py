@@ -93,8 +93,8 @@ def find_unity_gain(
         min_c = 1e-12
 
     pole_est = max_g / min_c
-    lo = max(pole_est * 1e-9, 1e-3)
-    hi = max(pole_est * 1e3, lo * 10.0)
+    lo = 1e-3
+    hi = max(pole_est * 1e3, 1.0)
     h_lo = response_mag(G, C, rhs_g, rhs_c, out_idx, lo)
     if h_lo < 1.0:
         return 0.0

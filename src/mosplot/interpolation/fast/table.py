@@ -52,18 +52,51 @@ def _canonical_gmid_bounds(gmid_bounds):
     return [float(gmid_bounds[0]), float(gmid_bounds[1])]
 
 
-def _cache_signature(device_key, n_gmid, gmid_bounds, cache_tag=None):
+def _hash_array(hasher, name, value):
+    arr = np.asarray(value)
+    hasher.update(str(name).encode("utf-8"))
+    hasher.update(str(arr.shape).encode("utf-8"))
+    hasher.update(str(arr.dtype).encode("utf-8"))
+    if arr.dtype == object:
+        payload = json.dumps(arr.tolist(), sort_keys=True, default=_json_default)
+        hasher.update(payload.encode("utf-8"))
+    else:
+        hasher.update(np.ascontiguousarray(arr).view(np.uint8))
+
+
+def _device_fingerprint(lookup_table, device_key):
+    dev = lookup_table[device_key]
+    hasher = hashlib.sha1()
+    hasher.update(str(device_key).encode("utf-8"))
+
+    for axis in ("length", "vbs", "vds", "vgs"):
+        if axis in dev:
+            _hash_array(hasher, axis, dev[axis])
+
+    parameter_names = list(dev.get("parameter_names", []))
+    hasher.update(json.dumps(parameter_names, default=_json_default).encode("utf-8"))
+    for param in parameter_names:
+        if param in dev:
+            _hash_array(hasher, param, dev[param])
+
+    return hasher.hexdigest()[:12]
+
+
+def _cache_signature(device_key, n_gmid, gmid_bounds, cache_tag=None, source_fingerprint=None):
     """Dict hashed into the cache filename. Change cache_tag to invalidate old caches."""
     return {
         "device_key": str(device_key),
         "n_gmid": int(n_gmid),
         "gmid_bounds": _canonical_gmid_bounds(gmid_bounds),
         "cache_tag": None if cache_tag is None else str(cache_tag),
+        "source_fingerprint": source_fingerprint,
     }
 
 
-def _cache_name(device_key, n_gmid, gmid_bounds, cache_tag=None):
-    signature = _cache_signature(device_key, n_gmid, gmid_bounds, cache_tag)
+def _cache_name(device_key, n_gmid, gmid_bounds, cache_tag=None, source_fingerprint=None):
+    signature = _cache_signature(
+        device_key, n_gmid, gmid_bounds, cache_tag, source_fingerprint
+    )
     payload = json.dumps(signature, sort_keys=True, default=_json_default)
     digest = hashlib.sha1(payload.encode("utf-8")).hexdigest()[:12]
     safe_key = "".join(c if c.isalnum() or c in "._-" else "_" for c in str(device_key))
@@ -253,9 +286,22 @@ class GmIdTable:
     # --- cache API --------------------------------------------------------------
 
     @staticmethod
-    def cache_path(cache_dir, device_key, n_gmid=50, gmid_bounds=None, cache_tag=None):
+    def cache_path(
+        cache_dir,
+        device_key,
+        n_gmid=50,
+        gmid_bounds=None,
+        cache_tag=None,
+        source_fingerprint=None,
+    ):
         cache_dir = _as_cache_dir(cache_dir)
-        return cache_dir / _cache_name(device_key, n_gmid, gmid_bounds, cache_tag)
+        return cache_dir / _cache_name(
+            device_key,
+            n_gmid,
+            gmid_bounds,
+            cache_tag,
+            source_fingerprint=source_fingerprint,
+        )
 
     @classmethod
     def build_or_load(
@@ -272,12 +318,14 @@ class GmIdTable:
         verbose=False,
     ):
         """Load from disk if a valid cache exists, otherwise build and save."""
+        source_fingerprint = _device_fingerprint(lookup_table, device_key)
         cache_path = cls.cache_path(
             cache_dir,
             device_key,
             n_gmid=n_gmid,
             gmid_bounds=gmid_bounds,
             cache_tag=cache_tag,
+            source_fingerprint=source_fingerprint,
         )
         if cache_path.exists() and not rebuild:
             try:
@@ -293,7 +341,13 @@ class GmIdTable:
         table = cls(lookup_table, device_key, n_gmid=n_gmid, gmid_bounds=gmid_bounds)
         table.save(
             cache_path,
-            metadata=_cache_signature(device_key, n_gmid, gmid_bounds, cache_tag),
+            metadata=_cache_signature(
+                device_key,
+                n_gmid,
+                gmid_bounds,
+                cache_tag,
+                source_fingerprint=source_fingerprint,
+            ),
             compressed=compressed,
         )
         if verbose:

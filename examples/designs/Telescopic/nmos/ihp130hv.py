@@ -40,7 +40,7 @@ from amp import run, OptimizationParameter, Spec
 LOOKUP_TABLE = "/home/medwatt/coding/gmid_lookup/ihp_130_hv_spectre.npz"
 NMOS_NAME = "sg13_hv_nmos"
 PMOS_NAME = "sg13_hv_pmos"
-OUTPUT_MODULE = "/home/medwatt/git/gmid_designs_tb/ihp130hv/pmos_folded_wide-swing.scs"
+OUTPUT_MODULE = "/home/medwatt/git/gmid_designs_tb/ihp130hv/nmos_telescopic_wide-swing.scs"
 
 # === Nominal circuit conditions (edit these) ===================================
 VDD = 3.3
@@ -64,8 +64,8 @@ FIXED_POINT_ITERATIONS = 10
 # These names are generated from circuit variables and are read from
 # params[...] in the generated circuit model.
 PARAMETERS = [
-    OptimizationParameter("M4a_VDSAT_MARGIN", (0.3, 0.7)),
-    OptimizationParameter("M1a_VDSAT_MARGIN", (0.3, 0.7)),
+    OptimizationParameter("M4a_VDSAT_MARGIN", (0.3, 1.0)),
+    OptimizationParameter("M1a_VDSAT_MARGIN", (0.3, 1.0)),
     OptimizationParameter("M1a_ID", (5e-06, 20e-05)),
     OptimizationParameter("M1a_GMID", (10.0, 20.0)),
     OptimizationParameter("M1a_L", (4e-07, 1e-05)),

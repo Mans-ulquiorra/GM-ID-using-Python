@@ -5,26 +5,19 @@ import numpy as np
 from .expression import Expression
 
 
-def compute_device_width(
-    dev_params: dict,
-    param_names: list[str],
-    lookup_table_entry: dict,
-) -> float:
+def compute_device_width(dev_params: dict) -> float:
     """
-    Compute the effective device width from the lookup table entry.
+    Compute the effective device width from device_parameters.
 
-    Priority: explicit 'w' in device_parameters -> 'weff' parameter (scaled by 'nf').
-    Raises ValueError if neither is found.
+    Priority: 'w' -> 'weff' (scaled by 'nf'). Raises ValueError if neither is found.
     """
     if "w" in dev_params:
         return float(dev_params["w"])
-    if "weff" in param_names:
-        weff = float(np.asarray(lookup_table_entry["weff"]).ravel()[0])
+    if "weff" in dev_params:
         nf = float(dev_params.get("nf", 1))
-        return weff * nf
+        return float(dev_params["weff"]) * nf
     raise ValueError(
-        "Device width could not be computed: neither 'w' in device_parameters "
-        "nor 'weff' in parameter_names."
+        "Device width could not be computed: neither 'w' nor 'weff' in device_parameters."
     )
 
 

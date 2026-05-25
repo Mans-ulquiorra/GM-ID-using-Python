@@ -96,7 +96,7 @@ class Mosfet:
         self.length_all = self.lookup_table["length"]
         self.parameters = self.lookup_table["parameter_names"]
         self.device_parameters = self.lookup_table["device_parameters"]
-        self.width = compute_device_width(self.device_parameters, self.parameters, self.lookup_table)
+        self.width = compute_device_width(self.device_parameters)
 
         self.secondary_var, self.filtered_variables, self.extracted_table = extract_2d_table(
             lookup_table=self.lookup_table,

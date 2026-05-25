@@ -59,13 +59,15 @@ class LookupTableGenerator:
         loopup_table["parameter_names"] = parameters_to_save
         loopup_table["device_parameters"] = device_parameters
         for transistor_name, sweep in self.model_sweeps.items():
+            per_transistor_params = dict(device_parameters)
+            per_transistor_params.update(cleaner.scalar_params.get(transistor_name, {}))
             loopup_table[transistor_name]["vgs"] = range_args(sweep.vgs)
             loopup_table[transistor_name]["vds"] = range_args(sweep.vds)
             loopup_table[transistor_name]["vbs"] = range_args(sweep.vbs)
             loopup_table[transistor_name]["length"] = np.array(sweep.length)
             loopup_table[transistor_name]["model_name"] = transistor_name
             loopup_table[transistor_name]["parameter_names"] = parameters_to_save
-            loopup_table[transistor_name]["device_parameters"] = device_parameters
+            loopup_table[transistor_name]["device_parameters"] = per_transistor_params
 
         directory = os.path.dirname(filepath)
         if directory and not os.path.exists(directory):

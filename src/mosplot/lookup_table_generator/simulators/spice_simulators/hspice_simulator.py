@@ -60,18 +60,18 @@ class HspiceSimulator(BaseSimulator):
 
     def setup_dc_simulation(self, sweep):
         symbol = self.mos_spice_symbols[1]
-        polarity = "-" if sweep.mos_type == "nmos" else ""
+        v_sign = "-" if sweep.mos_type == "pmos" else ""
         self.parameter_table = {
             "id": [
-                f".probe DC m_id = par('{polarity}i(vds)')",
+                ".probe DC m_id = par('abs(i(vds))')",
                 "m_id"
             ],
             "vth": [
-                f".probe DC m_vth = par('vth({symbol})')",
+                f".probe DC m_vth = par('{v_sign}abs(vth({symbol}))')",
                 "m_vth"
             ],
             "vdsat": [
-                f".probe DC m_vdsat = par('vdsat({symbol})')",
+                f".probe DC m_vdsat = par('{v_sign}abs(vdsat({symbol}))')",
                 "m_vdsat",
             ],
             "gm": [
@@ -146,4 +146,3 @@ class HspiceSimulator(BaseSimulator):
             if col_name in analysis.keys():
                 res = np.array(analysis[col_name]).T
                 lookup_table[transistor_type][p][length][vbs] = res
-

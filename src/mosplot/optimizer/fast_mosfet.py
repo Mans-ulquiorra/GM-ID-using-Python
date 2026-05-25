@@ -98,7 +98,7 @@ class FastMosfet:
         dev_params  = dev.get("device_parameters", {})
         param_names = list(dev.get("parameter_names", []))
 
-        self._width = compute_device_width(dev_params, param_names, dev)
+        self._width = compute_device_width(dev_params)
 
         vdsat_var = "vdssat" if "vdssat" in param_names else "vdsat"
         for name, expr in build_expressions(self._width, vdsat_var).items():

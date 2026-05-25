@@ -11,47 +11,41 @@ from ._types import CompiledModel, GROUND, UNKNOWN_NODE, SmallSignalResult
 from .kernels import assemble_compiled, find_unity_gain, phase_margin
 
 
-def _known_values(node: str, inp: str, inn: str) -> tuple[float, float]:
-    """Return known differential/common-mode voltages for ideal input nodes.
+InputItems = tuple[tuple[str, float], ...]
 
-    The solver uses a 1 V differential stimulus:
 
-        inp = +0.5 V, inn = -0.5 V
+def canonical_inputs(inputs: dict[str, float] | None) -> InputItems:
+    if not inputs:
+        return ()
+    return tuple(sorted((str(node), float(value)) for node, value in inputs.items()))
 
-    and a 1 V common-mode stimulus:
 
-        inp = inn = +1 V
-
-    Ground and non-input known nodes are zero for both solves.
-    """
-
-    if node == inp:
-        return +0.5, 1.0
-    if node == inn:
-        return -0.5, 1.0
-    return 0.0, 0.0
+def _input_value(node: str, inputs: InputItems) -> float:
+    for input_node, value in inputs:
+        if node == input_node:
+            return value
+    return 0.0
 
 
 def _node_index_and_known(
     node: str,
     node_idx: dict[str, int],
-    inp: str,
-    inn: str,
+    inputs: InputItems,
+    cm_inputs: InputItems,
 ) -> tuple[int, float, float]:
     """Map a node name to either a matrix index or a known-source value."""
 
     idx = node_idx.get(node)
     if idx is not None:
         return idx, 0.0, 0.0
-    dm, cm = _known_values(node, inp, inn)
-    return UNKNOWN_NODE, dm, cm
+    return UNKNOWN_NODE, _input_value(node, inputs), _input_value(node, cm_inputs)
 
 
 def _compile_node_maps(
     node_idx: dict[str, int],
     node_groups: tuple[tuple[str, ...], ...],
-    inp: str,
-    inn: str,
+    inputs: InputItems,
+    cm_inputs: InputItems,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Compile node-name tuples into index and known-source arrays.
 
@@ -59,8 +53,8 @@ def _compile_node_maps(
     of capacitor nodes ``(a, b)``. The returned arrays have matching shape:
 
     * ``idx``: matrix row/column indices, or ``UNKNOWN_NODE``
-    * ``dm``: known-node voltage for a 1 V differential input
-    * ``cm``: known-node voltage for a 1 V common-mode input
+    * ``dm``: known-node voltage for the requested AC input
+    * ``cm``: known-node voltage for the optional common-mode input
     """
 
     width = len(node_groups[0]) if node_groups else 0
@@ -69,7 +63,7 @@ def _compile_node_maps(
     cm = np.zeros_like(idx, dtype=float)
     for i, nodes in enumerate(node_groups):
         for j, node in enumerate(nodes):
-            idx[i, j], dm[i, j], cm[i, j] = _node_index_and_known(node, node_idx, inp, inn)
+            idx[i, j], dm[i, j], cm[i, j] = _node_index_and_known(node, node_idx, inputs, cm_inputs)
     return idx, dm, cm
 
 
@@ -121,34 +115,36 @@ class SmallSignalModel:
                 node_order.setdefault(node, None)
         return tuple(node_order)
 
-    def _node_index(self, inp: str, inn: str) -> dict[str, int]:
+    def _node_index(self, known_nodes: frozenset[str]) -> dict[str, int]:
         """Assign matrix indices to unknown non-ground nodes."""
 
-        sources = frozenset({inp, inn})
         return {
             node: i
             for i, node in enumerate(
-                node for node in self.nodes if node != GROUND and node not in sources
+                node for node in self.nodes if node != GROUND and node not in known_nodes
             )
         }
 
     @lru_cache(maxsize=32)
-    def _compile(self, inp: str, inn: str, out: str) -> CompiledModel:
-        """Compile topology for a specific input pair and output node.
+    def _compile(self, inputs: InputItems, cm_inputs: InputItems, out: str) -> CompiledModel:
+        """Compile topology for a specific known-node set and output node.
 
-        The same topology can be solved with different input/output choices, so
-        the compiled map is cached by ``(inp, inn, out)``. Typical optimizer
-        use has exactly one such tuple, which means this work happens once.
+        The same topology can be solved with different input vectors, so the
+        compiled map is cached by input nodes and output. Typical optimizer use
+        has exactly one such tuple, which means this work happens once.
         """
 
-        node_idx = self._node_index(inp, inn)
+        known_nodes = frozenset(node for node, _ in inputs) | frozenset(
+            node for node, _ in cm_inputs
+        )
+        node_idx = self._node_index(known_nodes)
         if out not in node_idx:
             raise ValueError(
                 f"Output node '{out}' is not an unknown node. Unknown nodes: {list(node_idx)}"
             )
 
-        mos_idx, mos_dm, mos_cm = _compile_node_maps(node_idx, self.mos_nodes, inp, inn)
-        cap_idx, cap_dm, cap_cm = _compile_node_maps(node_idx, self.cap_nodes, inp, inn)
+        mos_idx, mos_dm, mos_cm = _compile_node_maps(node_idx, self.mos_nodes, inputs, cm_inputs)
+        cap_idx, cap_dm, cap_cm = _compile_node_maps(node_idx, self.cap_nodes, inputs, cm_inputs)
         return CompiledModel(
             node_idx=node_idx,
             mos_idx=mos_idx,
@@ -165,8 +161,8 @@ class SmallSignalModel:
         mos_values: np.ndarray,
         cap_values: np.ndarray,
         *,
-        inp: str,
-        inn: str,
+        inputs: dict[str, float],
+        cm_inputs: dict[str, float] | None,
         out: str,
         gbw_iters: int,
         compute_cmrr: bool,
@@ -175,12 +171,18 @@ class SmallSignalModel:
     ) -> SmallSignalResult:
         """Solve this topology for one numeric operating point."""
 
+        input_items = canonical_inputs(inputs)
+        cm_input_items = canonical_inputs(cm_inputs) if compute_cmrr else ()
+        if not input_items:
+            raise ValueError("At least one AC input must be provided.")
+        if compute_cmrr and not cm_input_items:
+            raise ValueError("CMRR requires cm_inputs.")
         if compute_phase_margin and not compute_gbw:
             raise ValueError(
                 "Phase margin requires GBW; set compute_gbw=True or compute_phase_margin=False."
             )
 
-        compiled = self._compile(inp, inn, out)
+        compiled = self._compile(input_items, cm_input_items, out)
         G, C, rhs_g_dm, rhs_c_dm, rhs_g_cm, rhs_c_cm = assemble_compiled(
             mos_values,
             cap_values,
