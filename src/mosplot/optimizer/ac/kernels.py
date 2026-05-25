@@ -1,0 +1,360 @@
+"""Numerical kernels for reduced-MNA AC analysis.
+
+These functions are deliberately free of circuit names and Python objects. The
+``SmallSignalModel`` compiles nodes into integer arrays once; these kernels then
+only receive numeric matrices/vectors so optimizer loops avoid repeated string
+lookups and branch-heavy stamping.
+"""
+
+from __future__ import annotations
+
+import numpy as np
+
+from mosplot._numba import njit
+from ._types import UNKNOWN_NODE
+
+
+@njit(cache=True)
+def solve_response(
+    G: np.ndarray,
+    C: np.ndarray,
+    rhs_g: np.ndarray,
+    rhs_c: np.ndarray,
+    out_idx: int,
+    omega: float,
+) -> complex:
+    """Solve one complex frequency point and return the output voltage.
+
+    The frequency-domain system is:
+
+        (G + j*w*C) * x = rhs_g + j*w*rhs_c
+
+    ``rhs_c`` is non-zero when capacitors connect to known ideal input-source
+    nodes. The complex matrix/RHS are filled explicitly to avoid temporary
+    arrays from repeated ``astype`` calls in tight frequency-search loops.
+    """
+
+    n = G.shape[0]
+    y = np.empty((n, n), dtype=np.complex128)
+    rhs = np.empty(n, dtype=np.complex128)
+    for i in range(n):
+        rhs[i] = rhs_g[i] + 1j * omega * rhs_c[i]
+        for j in range(n):
+            y[i, j] = G[i, j] + 1j * omega * C[i, j]
+    solution = np.linalg.solve(y, rhs)
+    return solution[out_idx]
+
+
+@njit(cache=False)
+def response_mag(
+    G: np.ndarray,
+    C: np.ndarray,
+    rhs_g: np.ndarray,
+    rhs_c: np.ndarray,
+    out_idx: int,
+    omega: float,
+) -> float:
+    """Magnitude of the output response at one radian frequency."""
+
+    return abs(solve_response(G, C, rhs_g, rhs_c, out_idx, omega))
+
+
+@njit(cache=True)
+def find_unity_gain(
+    G: np.ndarray,
+    C: np.ndarray,
+    rhs_g: np.ndarray,
+    rhs_c: np.ndarray,
+    out_idx: int,
+    n_iter: int,
+) -> float:
+    """Return the first unity-gain frequency in Hz.
+
+    The optimizer targets compensated amplifiers, so this assumes a mostly
+    low-pass response with one relevant unity crossing. The high-frequency
+    bracket expansion has a large safety cap, while the bisection iteration
+    count controls final crossing precision.
+    """
+
+    max_g = 1.0
+    for i in range(G.shape[0]):
+        for j in range(G.shape[1]):
+            value = abs(G[i, j])
+            if value > max_g:
+                max_g = value
+
+    min_c = np.inf
+    for i in range(C.shape[0]):
+        for j in range(C.shape[1]):
+            value = abs(C[i, j])
+            if value != 0.0 and value < min_c:
+                min_c = value
+    if not np.isfinite(min_c):
+        min_c = 1e-12
+
+    pole_est = max_g / min_c
+    lo = max(pole_est * 1e-9, 1e-3)
+    hi = max(pole_est * 1e3, lo * 10.0)
+    h_lo = response_mag(G, C, rhs_g, rhs_c, out_idx, lo)
+    if h_lo < 1.0:
+        return 0.0
+
+    h_hi = response_mag(G, C, rhs_g, rhs_c, out_idx, hi)
+    found_hi = False
+    for _ in range(60):
+        if h_hi <= 1.0:
+            found_hi = True
+            break
+        hi *= 10.0
+        h_hi = response_mag(G, C, rhs_g, rhs_c, out_idx, hi)
+    if not found_hi:
+        return np.inf
+
+    for _ in range(n_iter):
+        mid = np.sqrt(lo * hi)
+        if response_mag(G, C, rhs_g, rhs_c, out_idx, mid) > 1.0:
+            lo = mid
+        else:
+            hi = mid
+
+    return np.sqrt(lo * hi) / (2.0 * np.pi)
+
+
+@njit(cache=True)
+def phase_margin(
+    G: np.ndarray,
+    C: np.ndarray,
+    rhs_g: np.ndarray,
+    rhs_c: np.ndarray,
+    out_idx: int,
+    gbw_hz: float,
+    dc_gain: float,
+) -> float:
+    """Estimate phase margin at the unity-gain frequency.
+
+    The phase is normalized by the real DC gain to remove arbitrary inversion
+    sign. A small log-spaced path from low frequency to UGF is retained so
+    phase unwrap behaves like the previous Python implementation.
+    """
+
+    if not np.isfinite(gbw_hz) or gbw_hz <= 0.0:
+        return 180.0
+    if dc_gain == 0.0:
+        return 180.0
+
+    w_unity = 2.0 * np.pi * gbw_hz
+    w_ref = max(w_unity * 1e-3, 1e-3)
+    n_points = 1 if w_unity <= w_ref else 16
+    log_ref = np.log(w_ref)
+    log_unity = np.log(w_unity)
+
+    prev_phase = 0.0
+    phase_lag = 0.0
+    for i in range(n_points):
+        if n_points == 1:
+            omega = w_unity
+        else:
+            omega = np.exp(log_ref + (log_unity - log_ref) * i / (n_points - 1))
+
+        h = solve_response(G, C, rhs_g, rhs_c, out_idx, omega)
+        phase = np.angle(h / dc_gain)
+        delta = phase - prev_phase
+        while delta > np.pi:
+            phase -= 2.0 * np.pi
+            delta -= 2.0 * np.pi
+        while delta < -np.pi:
+            phase += 2.0 * np.pi
+            delta += 2.0 * np.pi
+        prev_phase = phase
+        phase_lag = phase
+
+    if phase_lag > 0.0:
+        phase_lag -= 2.0 * np.pi
+
+    pm = 180.0 + np.degrees(phase_lag)
+    if pm < 0.0:
+        return 0.0
+    if pm > 180.0:
+        return 180.0
+    return pm
+
+
+@njit(cache=True)
+def stamp_admittance(
+    mat: np.ndarray,
+    rhs_dm: np.ndarray,
+    rhs_cm: np.ndarray,
+    value: float,
+    ia: int,
+    ib: int,
+    dm_a: float,
+    cm_a: float,
+    dm_b: float,
+    cm_b: float,
+) -> None:
+    """Stamp a passive admittance between two nodes.
+
+    Entering-current KCL is used. For row ``a`` the contribution is
+    ``value * (Vb - Va)``. If either terminal is a known node, that terminal's
+    voltage is moved to the RHS for both differential and common-mode solves.
+    """
+
+    if value == 0.0:
+        return
+
+    if ia != UNKNOWN_NODE:
+        mat[ia, ia] -= value
+        if ib != UNKNOWN_NODE:
+            mat[ia, ib] += value
+        else:
+            rhs_dm[ia] -= value * dm_b
+            rhs_cm[ia] -= value * cm_b
+
+    if ib != UNKNOWN_NODE:
+        mat[ib, ib] -= value
+        if ia != UNKNOWN_NODE:
+            mat[ib, ia] += value
+        else:
+            rhs_dm[ib] -= value * dm_a
+            rhs_cm[ib] -= value * cm_a
+
+
+@njit(cache=True)
+def stamp_vccs(
+    G: np.ndarray,
+    rhs_g_dm: np.ndarray,
+    rhs_g_cm: np.ndarray,
+    value: float,
+    op: int,
+    om: int,
+    cp: int,
+    cm: int,
+    dm_cp: float,
+    cm_cp: float,
+    dm_cm: float,
+    cm_cm: float,
+) -> None:
+    """Stamp a current source ``value * (Vcp - Vcm)`` from ``op`` to ``om``."""
+
+    if value == 0.0:
+        return
+
+    if op != UNKNOWN_NODE:
+        if cp != UNKNOWN_NODE:
+            G[op, cp] -= value
+        else:
+            rhs_g_dm[op] += value * dm_cp
+            rhs_g_cm[op] += value * cm_cp
+
+        if cm != UNKNOWN_NODE:
+            G[op, cm] += value
+        else:
+            rhs_g_dm[op] -= value * dm_cm
+            rhs_g_cm[op] -= value * cm_cm
+
+    if om != UNKNOWN_NODE:
+        if cp != UNKNOWN_NODE:
+            G[om, cp] += value
+        else:
+            rhs_g_dm[om] -= value * dm_cp
+            rhs_g_cm[om] -= value * cm_cp
+
+        if cm != UNKNOWN_NODE:
+            G[om, cm] -= value
+        else:
+            rhs_g_dm[om] += value * dm_cm
+            rhs_g_cm[om] += value * cm_cm
+
+
+@njit(cache=True)
+def assemble_compiled(
+    mos_values: np.ndarray,
+    cap_values: np.ndarray,
+    mos_idx: np.ndarray,
+    mos_dm: np.ndarray,
+    mos_cm: np.ndarray,
+    cap_idx: np.ndarray,
+    cap_dm: np.ndarray,
+    cap_cm: np.ndarray,
+    n_nodes: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Assemble G/C matrices and RHS vectors from a compiled topology.
+
+    MOS value columns are ``gm, gmb, gds``. MOS node columns are ``d, g, s, b``.
+    Capacitor node columns are ``a, b``. This positional convention keeps the
+    hot loop compact and is documented here because it is the key extension
+    point for future stamp types.
+    """
+
+    G = np.zeros((n_nodes, n_nodes), dtype=np.float64)
+    C = np.zeros((n_nodes, n_nodes), dtype=np.float64)
+    rhs_g_dm = np.zeros(n_nodes, dtype=np.float64)
+    rhs_c_dm = np.zeros(n_nodes, dtype=np.float64)
+    rhs_g_cm = np.zeros(n_nodes, dtype=np.float64)
+    rhs_c_cm = np.zeros(n_nodes, dtype=np.float64)
+
+    for i in range(mos_values.shape[0]):
+        gm = mos_values[i, 0]
+        gmb = mos_values[i, 1]
+        gds = mos_values[i, 2]
+        d = mos_idx[i, 0]
+        g = mos_idx[i, 1]
+        s = mos_idx[i, 2]
+        b = mos_idx[i, 3]
+
+        stamp_admittance(
+            G,
+            rhs_g_dm,
+            rhs_g_cm,
+            gds,
+            d,
+            s,
+            mos_dm[i, 0],
+            mos_cm[i, 0],
+            mos_dm[i, 2],
+            mos_cm[i, 2],
+        )
+        stamp_vccs(
+            G,
+            rhs_g_dm,
+            rhs_g_cm,
+            gm,
+            d,
+            s,
+            g,
+            s,
+            mos_dm[i, 1],
+            mos_cm[i, 1],
+            mos_dm[i, 2],
+            mos_cm[i, 2],
+        )
+        stamp_vccs(
+            G,
+            rhs_g_dm,
+            rhs_g_cm,
+            gmb,
+            d,
+            s,
+            b,
+            s,
+            mos_dm[i, 3],
+            mos_cm[i, 3],
+            mos_dm[i, 2],
+            mos_cm[i, 2],
+        )
+
+    for i in range(cap_values.shape[0]):
+        stamp_admittance(
+            C,
+            rhs_c_dm,
+            rhs_c_cm,
+            cap_values[i],
+            cap_idx[i, 0],
+            cap_idx[i, 1],
+            cap_dm[i, 0],
+            cap_cm[i, 0],
+            cap_dm[i, 1],
+            cap_cm[i, 1],
+        )
+
+    return G, C, rhs_g_dm, rhs_c_dm, rhs_g_cm, rhs_c_cm

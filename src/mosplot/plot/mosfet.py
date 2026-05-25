@@ -1,14 +1,18 @@
-# imports <<<
 from __future__ import annotations
 
 from typing import cast
+
 import numpy as np
 
-from .expressions import Expression
-from .interpolation import GridInterpolator, KDTreeInterpolator
+from mosplot.expressions import (
+    Expression,
+    evaluate_expression,
+    build_expressions,
+    compute_device_width,
+)
+from mosplot.table import extract_2d_table
+from mosplot.interpolation import GridInterpolator
 from .plot import Plotter
-from .util import evaluate_expression, extract_2d_table
-# >>>
 
 
 _LEGEND_TITLE: dict[str, str] = {
@@ -47,7 +51,35 @@ class Mosfet:
         pmos = Mosfet(lookup_table=lookup_table, mos="pch_lvt", vbs=0.0, vgs=-0.4, vds=(-1.19, -0.01))
     """
 
-    # init <<<
+    # Class-level annotations for LSP resolution -- populated by build_expressions() in __init__
+    length_expression: Expression
+    vgs_expression: Expression
+    vsg_expression: Expression
+    vbs_expression: Expression
+    vsb_expression: Expression
+    vds_expression: Expression
+    vsd_expression: Expression
+    vdsat_expression: Expression
+    vth_expression: Expression
+    vov_expression: Expression
+    vstar_expression: Expression
+    id_expression: Expression
+    gm_expression: Expression
+    gmbs_expression: Expression
+    gds_expression: Expression
+    cgg_expression: Expression
+    cgs_expression: Expression
+    cgd_expression: Expression
+    cbg_expression: Expression
+    cdd_expression: Expression
+    gmid_expression: Expression
+    gain_expression: Expression
+    transit_frequency_expression: Expression
+    early_voltage_expression: Expression
+    inverse_early_voltage_expression: Expression
+    current_density_expression: Expression
+    rds_expression: Expression
+
     def __init__(
         self,
         *,
@@ -57,14 +89,14 @@ class Mosfet:
         vbs: float | tuple[float, float] | tuple[float, float, float] | None = None,
         vgs: float | tuple[float, float] | tuple[float, float, float] | None = None,
         vds: float | tuple[float, float] | tuple[float, float, float] | None = None,
-        primary: str | None = None
+        primary: str | None = None,
     ) -> None:
         self.mos = mos
         self.lookup_table = lookup_table[mos]
         self.length_all = self.lookup_table["length"]
         self.parameters = self.lookup_table["parameter_names"]
         self.device_parameters = self.lookup_table["device_parameters"]
-        self.width = self.compute_device_width()
+        self.width = compute_device_width(self.device_parameters, self.parameters, self.lookup_table)
 
         self.secondary_var, self.filtered_variables, self.extracted_table = extract_2d_table(
             lookup_table=self.lookup_table,
@@ -78,123 +110,28 @@ class Mosfet:
         self.vbs = self.filtered_variables["vbs"]
         self.vgs = self.filtered_variables["vgs"]
         self.vds = self.filtered_variables["vds"]
-        self._interpolator_cache: dict = {}
-        self._init_params = {"length": length, "vbs": vbs, "vgs": vgs, "vds": vds}
-        self._axis_sort_cache: dict = {}
 
-        self.length_expression  = Expression(variables=["length"],  label="$\\mathrm{Length}\\ (m)$")
-        self.vbs_expression     = Expression(variables=["vbs"],     label="$V_{\\mathrm{BS}}\\ (V)$")
-        self.vgs_expression     = Expression(variables=["vgs"],     label="$V_{\\mathrm{GS}}\\ (V)$")
-        self.vds_expression     = Expression(variables=["vds"],     label="$V_{\\mathrm{DS}}\\ (V)$")
-        self.id_expression      = Expression(variables=["id"],      label="$I_{D}\\ (A)$")
-        self.vth_expression     = Expression(variables=["vth"],     label="$V_{\\mathrm{TH}}\\ (V)$")
-        self.gm_expression      = Expression(variables=["gm"],      label="$g_{m}\\ (S)$")
-        self.gmbs_expression    = Expression(variables=["gmbs"],    label="$g_{\\mathrm{mbs}}\\ (S)$")
-        self.gds_expression     = Expression(variables=["gds"],     label="$g_{\\mathrm{ds}}\\ (S)$")
-        self.cgg_expression     = Expression(variables=["cgg"],     label="$c_{\\mathrm{gg}}\\ (F)$")
-        self.cgs_expression     = Expression(variables=["cgs"],     label="$c_{\\mathrm{gs}}\\ (F)$")
-        self.cbg_expression     = Expression(variables=["cbg"],     label="$c_{\\mathrm{bg}}\\ (F)$")
-        self.cgd_expression     = Expression(variables=["cgd"],     label="$c_{\\mathrm{gd}}\\ (F)$")
-        self.cdd_expression     = Expression(variables=["cdd"],     label="$c_{\\mathrm{dd}}\\ (F)$")
+        vdsat_var = "vdssat" if "vdssat" in self.parameters else "vdsat"
+        for name, expr in build_expressions(self.width, vdsat_var).items():
+            setattr(self, name, expr)
 
-        # Some models use vdssat instead of vdsat.
-        if "vdssat" in self.parameters:
-            self.vdsat_expression = Expression(variables=["vdssat"], label="$V_{\\mathrm{DS_{\\mathrm{SAT}}}}\\ (V)$")
-        else:
-            self.vdsat_expression = Expression(variables=["vdsat"],  label="$V_{\\mathrm{DS_{\\mathrm{SAT}}}}\\ (V)$")
-
-        self.vsg_expression = Expression(
-            variables=["vgs"],
-            function=lambda x: -x,
-            label="$V_{\\mathrm{SG}}\\ (V)$"
-        )
-        self.vsb_expression = Expression(
-            variables=["vbs"],
-            function=lambda x: -x,
-            label="$V_{\\mathrm{SB}}\\ (V)$"
-        )
-        self.vsd_expression = Expression(
-            variables=["vds"],
-            function=lambda x: -x,
-            label="$V_{\\mathrm{SD}}\\ (V)$"
-        )
-        self.gmid_expression = Expression(
-            variables=["gm", "id"],
-            function=lambda x, y: x / y,
-            label="$g_m/I_D\\ (S/A)$"
-        )
-        self.vov_expression = Expression(
-            variables=["vgs", "vth"],
-            function=lambda x, y: x - y,
-            label="$V_{\\mathrm{OV}}\\ (V)$"
-        )
-        self.vstar_expression = Expression(
-            variables=["gm", "id"],
-            function=lambda x, y: (2 * y) / x,
-            label="$V^{\\star}\\ (V)$"
-        )
-        self.current_density_expression = Expression(
-            variables=["id"],
-            function=lambda x: x / self.width,
-            label="$I_{D}/W\\ (A/m)$"
-        )
-        self.gain_expression = Expression(
-            variables=["gm", "gds"],
-            function=lambda x, y: x / y,
-            label="$g_{m}/g_{\\mathrm{ds}}$"
-        )
-        self.transit_frequency_expression = Expression(
-            variables=["gm", "cgg"],
-            function=lambda x, y: x / (2 * np.pi * y),
-            label="$f_{T}\\ (Hz)$"
-        )
-        self.early_voltage_expression = Expression(
-            variables=["id", "gds"],
-            function=lambda x, y: x / y,
-            label="$V_{A}\\ (V)$"
-        )
-        self.inverse_early_voltage_expression = Expression(
-            variables=["gds", "id"],
-            function=lambda x, y: x / y,
-            label="$1/V_{A}\\ (V^{-1})$"
-        )
-        self.rds_expression = Expression(
-            variables=["gds"],
-            function=lambda x: 1 / x,
-            label="$r_{\\mathrm{ds}}\\ (\\Omega)$"
-        )
-
-    def compute_device_width(self):
-        if "w" in self.device_parameters:
-            return self.device_parameters["w"]
-        elif "weff" in self.parameters:
-            if "nf" in self.device_parameters:
-                return self.lookup_table["weff"] * self.device_parameters["nf"]
-            else:
-                return self.lookup_table["weff"]
-        raise ValueError("Device width could not be computed.")
-    # >>>
-
-    # calculate from expression <<<
     def calculate_from_expression(
         self,
         expression: Expression,
         filter_by_rows: np.ndarray | None = None,
     ) -> tuple[np.ndarray, str]:
         """
-        Calculates values from a given expression over the extracted lookup table.
+        Evaluate an expression over the extracted lookup table.
 
         Args:
             expression: The Expression object defining the computation.
             filter_by_rows: Optional array of row indices to filter the data.
 
         Returns:
-            A tuple containing the computed numpy array and the expression's label.
+            A tuple of (computed array, label string).
         """
         return evaluate_expression(expression, self.extracted_table, filter_by_rows)
-    # >>>
 
-    # render plot <<<
     def _render_plot(
         self,
         *,
@@ -228,16 +165,27 @@ class Mosfet:
             plotter = Plotter(fig_size=fig_size, show_legend=show_legend)
             _, ax, ax2 = plotter.create_figure_with_twin(
                 title="",
-                x_label=x_label, y_label=y_label, y2_label=y2_label,
-                x_lim=x_limit, y_lim=y_limit, y2_lim=y2_limit,
-                x_scale=x_scale, y_scale=y_scale, y2_scale=y2_scale,
-                x_eng_format=x_eng_format, y_eng_format=y_eng_format, y2_eng_format=y2_eng_format,
+                x_label=x_label,
+                y_label=y_label,
+                y2_label=y2_label,
+                x_lim=x_limit,
+                y_lim=y_limit,
+                y2_lim=y2_limit,
+                x_scale=x_scale,
+                y_scale=y_scale,
+                y2_scale=y2_scale,
+                x_eng_format=x_eng_format,
+                y_eng_format=y_eng_format,
+                y2_eng_format=y2_eng_format,
             )
             plotter.plot_data(ax2, x, y2, line_style="dashed", end_plotting=False)
             plotter.plot_data(
-                ax, x, y,
+                ax,
+                x,
+                y,
                 line_style="solid",
-                legend=legend, legend_title=legend_title,
+                legend=legend,
+                legend_title=legend_title,
                 legend_eng_format=legend_eng_format,
                 legend_placement="top" if legend_placement is None else legend_placement,
                 bbox_to_anchor=legend_location,
@@ -249,23 +197,28 @@ class Mosfet:
             plotter = Plotter(fig_size=fig_size, show_legend=show_legend)
             _, ax = plotter.create_figure(
                 title="",
-                x_label=x_label, y_label=y_label,
-                x_lim=x_limit, y_lim=y_limit,
-                x_scale=x_scale, y_scale=y_scale,
-                x_eng_format=x_eng_format, y_eng_format=y_eng_format,
+                x_label=x_label,
+                y_label=y_label,
+                x_lim=x_limit,
+                y_lim=y_limit,
+                x_scale=x_scale,
+                y_scale=y_scale,
+                x_eng_format=x_eng_format,
+                y_eng_format=y_eng_format,
             )
             plotter.plot_data(
-                ax, x, y,
-                legend=legend, legend_title=legend_title,
+                ax,
+                x,
+                y,
+                legend=legend,
+                legend_title=legend_title,
                 legend_eng_format=legend_eng_format,
                 legend_placement=legend_placement,
                 bbox_to_anchor=legend_location,
                 save_fig=save_fig,
             )
             return (x, y) if return_result else None
-    # >>>
 
-    # plot by expression <<<
     def plot_by_expression(
         self,
         *,
@@ -288,7 +241,7 @@ class Mosfet:
         show_legend: bool = True,
         fig_size: tuple[int, int] | None = None,
         save_fig: str = "",
-        return_result: bool = False
+        return_result: bool = False,
     ) -> tuple | None:
         """
         Plot computed x, y, and optionally y2 expressions, filtering by the secondary sweep variable.
@@ -337,19 +290,32 @@ class Mosfet:
             y2, y2_label = None, ""
 
         return self._render_plot(
-            x=x, y=y, x_label=x_label, y_label=y_label,
-            y2=y2, y2_label=y2_label,
-            legend=legend, legend_title=_LEGEND_TITLE.get(filter_var, filter_var),
-            x_limit=x_limit, y_limit=y_limit, y2_limit=y2_limit,
-            x_scale=x_scale, y_scale=y_scale, y2_scale=y2_scale,
-            x_eng_format=x_eng_format, y_eng_format=y_eng_format, y2_eng_format=y2_eng_format,
-            legend_placement=legend_placement, legend_location=legend_location,
-            legend_eng_format=legend_eng_format, show_legend=show_legend,
-            fig_size=fig_size, save_fig=save_fig, return_result=return_result,
+            x=x,
+            y=y,
+            x_label=x_label,
+            y_label=y_label,
+            y2=y2,
+            y2_label=y2_label,
+            legend=legend,
+            legend_title=_LEGEND_TITLE.get(filter_var, filter_var),
+            x_limit=x_limit,
+            y_limit=y_limit,
+            y2_limit=y2_limit,
+            x_scale=x_scale,
+            y_scale=y_scale,
+            y2_scale=y2_scale,
+            x_eng_format=x_eng_format,
+            y_eng_format=y_eng_format,
+            y2_eng_format=y2_eng_format,
+            legend_placement=legend_placement,
+            legend_location=legend_location,
+            legend_eng_format=legend_eng_format,
+            show_legend=show_legend,
+            fig_size=fig_size,
+            save_fig=save_fig,
+            return_result=return_result,
         )
-    # >>>
 
-    # plot by sweep <<<
     def plot_by_sweep(
         self,
         *,
@@ -376,7 +342,7 @@ class Mosfet:
         show_legend: bool = True,
         save_fig: str = "",
         fig_size: tuple[int, int] | None = None,
-        return_result: bool = False
+        return_result: bool = False,
     ) -> tuple | None:
         """
         Plot computed x, y, and optionally y2 expressions for a sweep with fixed parameters.
@@ -412,7 +378,10 @@ class Mosfet:
         """
         secondary_var, filtered_vars, extracted_table = extract_2d_table(
             lookup_table=self.lookup_table,
-            length=length, vbs=vbs, vgs=vgs, vds=vds,
+            length=length,
+            vbs=vbs,
+            vgs=vgs,
+            vds=vds,
             primary=primary,
         )
         x, x_label = evaluate_expression(x_expression, extracted_table)
@@ -429,19 +398,32 @@ class Mosfet:
             legend, legend_title = None, None
 
         return self._render_plot(
-            x=x, y=y, x_label=x_label, y_label=y_label,
-            y2=y2, y2_label=y2_label,
-            legend=legend, legend_title=legend_title,
-            x_limit=x_limit, y_limit=y_limit, y2_limit=y2_limit,
-            x_scale=x_scale, y_scale=y_scale, y2_scale=y2_scale,
-            x_eng_format=x_eng_format, y_eng_format=y_eng_format, y2_eng_format=y2_eng_format,
-            legend_placement=legend_placement, legend_location=legend_location,
-            legend_eng_format=legend_eng_format, show_legend=show_legend,
-            fig_size=fig_size, save_fig=save_fig, return_result=return_result,
+            x=x,
+            y=y,
+            x_label=x_label,
+            y_label=y_label,
+            y2=y2,
+            y2_label=y2_label,
+            legend=legend,
+            legend_title=legend_title,
+            x_limit=x_limit,
+            y_limit=y_limit,
+            y2_limit=y2_limit,
+            x_scale=x_scale,
+            y_scale=y_scale,
+            y2_scale=y2_scale,
+            x_eng_format=x_eng_format,
+            y_eng_format=y_eng_format,
+            y2_eng_format=y2_eng_format,
+            legend_placement=legend_placement,
+            legend_location=legend_location,
+            legend_eng_format=legend_eng_format,
+            show_legend=show_legend,
+            fig_size=fig_size,
+            save_fig=save_fig,
+            return_result=return_result,
         )
-    # >>>
 
-    # quick plot <<<
     def quick_plot(
         self,
         *,
@@ -463,12 +445,10 @@ class Mosfet:
         legend_eng_format: bool = True,
         show_legend: bool = True,
         title: str | None = None,
-        save_fig: str = ""
+        save_fig: str = "",
     ) -> None:
         """
-        Quickly plots the provided x and y data.
-
-        x and y can be either a single numpy array or a list of numpy arrays.
+        Quickly plot arbitrary x and y data (arrays or lists of arrays).
 
         Args:
             x: x-axis data as a numpy array or a list of numpy arrays.
@@ -491,13 +471,19 @@ class Mosfet:
         plotter = Plotter(fig_size=fig_size, show_legend=show_legend)
         _, ax = plotter.create_figure(
             title=title or "",
-            x_label=x_label, y_label=y_label,
-            x_lim=x_limit, y_lim=y_limit,
-            x_scale=x_scale, y_scale=y_scale,
-            x_eng_format=x_eng_format, y_eng_format=y_eng_format,
+            x_label=x_label,
+            y_label=y_label,
+            x_lim=x_limit,
+            y_lim=y_limit,
+            x_scale=x_scale,
+            y_scale=y_scale,
+            x_eng_format=x_eng_format,
+            y_eng_format=y_eng_format,
         )
         plotter.plot_data(
-            ax, x, y,
+            ax,
+            x,
+            y,
             legend=legend,
             legend_title=legend_title,
             legend_placement=legend_placement,
@@ -505,68 +491,22 @@ class Mosfet:
             bbox_to_anchor=legend_location,
             save_fig=save_fig,
         )
-    # >>>
 
-    # _bracket_axis <<<
-    def _bracket_axis(self, axis: str, value: float) -> tuple[int, int, float]:
-        if axis not in self._axis_sort_cache:
-            sort_idx = np.argsort(self.lookup_table[axis])
-            self._axis_sort_cache[axis] = (sort_idx, self.lookup_table[axis][sort_idx])
-        sort_idx, sorted_grid = self._axis_sort_cache[axis]
-        clamped = float(np.clip(value, sorted_grid[0], sorted_grid[-1]))
-        pos = int(np.searchsorted(sorted_grid, clamped))
-        i_hi = min(pos, len(sorted_grid) - 1)
-        i_lo = max(i_hi - 1, 0)
-        orig_lo, orig_hi = int(sort_idx[i_lo]), int(sort_idx[i_hi])
-        v_lo, v_hi = float(sorted_grid[i_lo]), float(sorted_grid[i_hi])
-        t = 0.0 if i_lo == i_hi else (clamped - v_lo) / (v_hi - v_lo)
-        return orig_lo, orig_hi, t
-    # >>>
-
-    # _get_interpolator_at_axis <<<
-    def _get_interpolator_at_axis(
-        self,
-        axis: str,
-        axis_idx: int,
-        x_expression: Expression,
-        y_expression: Expression,
-        fast: bool,
-    ) -> KDTreeInterpolator | GridInterpolator:
-        key = (fast, id(x_expression), id(y_expression), axis, axis_idx)
-        if key not in self._interpolator_cache:
-            params = {**self._init_params, axis: float(self.lookup_table[axis][axis_idx])}
-            _, _, table = extract_2d_table(lookup_table=self.lookup_table, **params)
-            cls = KDTreeInterpolator if fast else GridInterpolator
-            self._interpolator_cache[key] = cls(table, x_expression, y_expression)
-        return self._interpolator_cache[key]
-    # >>>
-
-    # interpolate <<<
     def interpolate(
         self,
         *,
         x_expression: Expression,
-        x_value: float | tuple[float, float] | np.ndarray,
+        x_value: float | tuple[float, ...] | np.ndarray,
         y_expression: Expression,
-        y_value: float | tuple[float, float] | np.ndarray,
+        y_value: float | tuple[float, ...] | np.ndarray,
         z_expression: Expression | list[Expression],
-        sweep: tuple[str, float] | None = None,
-        fast: bool = False
     ) -> np.ndarray | list[np.ndarray]:
         """
-        Interpolates z values given x and y expressions.
+        Interpolate z values given x and y expressions using cubic griddata.
 
         The x and y expressions define the two axes of a scattered-data surface built
         from every point in the extracted table. The interpolator finds where that surface
         evaluates to z at the queried (x_value, y_value); no data is discarded.
-
-        sweep, if provided, is a (axis, value) pair where axis is one of "length", "vbs",
-        "vgs", or "vds". Instead of using the single extracted table, two separate 2-D
-        surfaces are built, one at each of the two raw grid points that bracket the
-        requested value, and the final result is linearly blended between them. This gives
-        an accurate result at any continuous axis value without re-extracting the table on
-        every call. Both surfaces are cached, so repeated calls whose value falls in the
-        same bracket cost only two evaluations and a blend.
 
         Args:
             x_expression: Expression for the x-axis of the interpolation surface.
@@ -574,33 +514,15 @@ class Mosfet:
             y_expression: Expression for the y-axis of the interpolation surface.
             y_value: Query value(s) for the y-axis.
             z_expression: Expression or list of expressions to interpolate.
-            sweep: Optional (axis, value) pair for continuous interpolation along a
-                   raw grid axis ("length", "vbs", "vgs", or "vds").
-            fast: If True, use KDTree-based IDW interpolation; otherwise use griddata cubic.
 
         Returns:
             A single interpolated array if z_expression is a single Expression,
             or a list of arrays if a list is provided.
         """
-        if sweep is not None:
-            axis, value = sweep
-            idx_lo, idx_hi, t = self._bracket_axis(axis, value)
-            interp_lo = self._get_interpolator_at_axis(axis, idx_lo, x_expression, y_expression, fast)
-            interp_hi = self._get_interpolator_at_axis(axis, idx_hi, x_expression, y_expression, fast)
-            res_lo = interp_lo.interpolate(x_value, y_value, z_expression)
-            res_hi = interp_hi.interpolate(x_value, y_value, z_expression)
-            if isinstance(z_expression, list):
-                return [lo + t * (hi - lo) for lo, hi in zip(res_lo, res_hi)]
-            return cast(np.ndarray, res_lo) + t * (cast(np.ndarray, res_hi) - cast(np.ndarray, res_lo))
+        return GridInterpolator(self.extracted_table, x_expression, y_expression).interpolate(
+            x_value, y_value, z_expression
+        )
 
-        key = (fast, id(x_expression), id(y_expression))
-        if key not in self._interpolator_cache:
-            cls = KDTreeInterpolator if fast else GridInterpolator
-            self._interpolator_cache[key] = cls(self.extracted_table, x_expression, y_expression)
-        return self._interpolator_cache[key].interpolate(x_value, y_value, z_expression)
-    # >>>
-
-    # lookup expression from table <<<
     def lookup_expression_from_table(
         self,
         *,
@@ -609,10 +531,10 @@ class Mosfet:
         vgs: float | tuple[float, float, float],
         vds: float | tuple[float, float, float],
         primary: str,
-        expression: Expression | list[Expression]
+        expression: Expression | list[Expression],
     ) -> np.ndarray | list[np.ndarray]:
         """
-        Evaluates one or more expressions on the lookup table without interpolation.
+        Evaluate one or more expressions directly on the lookup table without interpolation.
 
         Args:
             length: The MOSFET length to filter the table.
@@ -623,15 +545,20 @@ class Mosfet:
             expression: A single Expression or a list of Expressions to evaluate.
 
         Returns:
-            A numpy array if a single Expression is provided, or a list of numpy arrays if multiple
-            Expressions are provided.
+            A numpy array if a single Expression is provided, or a list of numpy arrays
+            if multiple Expressions are provided.
         """
         _, _, extracted_table = extract_2d_table(
             lookup_table=self.lookup_table,
-            length=length, vbs=vbs, vgs=vgs, vds=vds,
+            length=length,
+            vbs=vbs,
+            vgs=vgs,
+            vds=vds,
             primary=primary,
         )
         if isinstance(expression, list):
-            return [evaluate_expression(e, extracted_table)[0] for e in cast(list[Expression], expression)]
+            return [
+                evaluate_expression(e, extracted_table)[0]
+                for e in cast(list[Expression], expression)
+            ]
         return evaluate_expression(expression, extracted_table)[0]
-    # >>>

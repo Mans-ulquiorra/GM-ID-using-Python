@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 import numpy as np
 import numpy.typing as npt
 import cma
 from scipy.optimize import OptimizeResult, minimize
 from .datatypes import OptimizationParameter, Spec
+from .netlist.base import NetlistGenerator
 
 
 # Guard threshold: for x > _SOFTPLUS_LIN_THRESHOLD the function is linear (avoids exp overflow).
@@ -39,11 +41,12 @@ class Optimizer:
         Scalar cost for a given set of circuit specs against the targets.
 
         "max" specs use log-scale normalisation so that large violations
-        (e.g. CMRR 10× below target) produce proportionally larger gradients
+        (e.g. CMRR 10x below target) produce proportionally larger gradients
         than a linearisation would. "min" specs use linear normalisation,
         which is appropriate for quantities that vary by small factors, and
         include a secondary term that keeps cost non-zero when satisfied so
-        the optimizer continues driving them down.
+        the optimizer continues driving them down. "eq" specs use squared
+        relative error, penalising deviation from the target in both directions.
         """
         cost = 0.0
         for key, spec in self.target_specs.items():
@@ -54,13 +57,17 @@ class Optimizer:
                 raw = (actual - target) / target
                 violation = _softplus(raw)
                 secondary = max(0.0, actual / target)
-                cost += spec.weight * (violation ** 2 + 0.05 * secondary)
+                cost += spec.weight * (violation**2 + 0.05 * secondary)
 
             elif spec.mode == "max":
                 ratio = target / actual if actual > 0 else np.inf
                 raw = float(np.log(ratio)) if np.isfinite(ratio) else 100.0
                 violation = _softplus(raw)
-                cost += spec.weight * (violation ** 2)
+                cost += spec.weight * (violation**2)
+
+            elif spec.mode == "eq":
+                raw = (actual - target) / abs(target)
+                cost += spec.weight * (raw**2)
 
         return cost
 
@@ -77,7 +84,10 @@ class Optimizer:
 
     def _objective(self, x: list[float] | npt.NDArray) -> float:
         params = self._transform_params(x)
-        specs = self.circuit.evaluate_specs(**params)
+        try:
+            specs = self.circuit.evaluate_specs(**params)
+        except Exception:
+            return 1e6
         return self.compute_cost(specs)
 
     def _get_bounds(self) -> list[tuple[float, float]]:
@@ -108,7 +118,11 @@ class Optimizer:
         opts["bounds"] = [[0.0] * n, [1.0] * n]
         opts["maxiter"] = maxiter
         opts["seed"] = seed
+
+        # Show optimizer progress, but do not write CMA log/output folders
+        opts["verb_log"] = 0
         opts["verbose"] = 1
+
         opts["tolx"] = 1e-5
         opts["tolfun"] = 1e-5
 
@@ -185,3 +199,23 @@ class Optimizer:
         if self.opt_params is None:
             raise ValueError("Optimization has not been performed yet.")
         return self.opt_params
+
+    def generate(self, generator: NetlistGenerator, output_path: Path | str) -> Path:
+        """Write a simulator netlist for the best found design.
+
+        Calls evaluate_specs() once at the optimum to refresh device_dimensions
+        and passive_params, then delegates to the given generator.
+        """
+        opt_params = self.get_opt_params()
+        self.circuit.evaluate_specs(**opt_params)
+        vsource_params = self.circuit.compute_vsource_params(opt_params)
+        return generator.generate(
+            mosfets=self.circuit.MOSFETS,
+            passives=self.circuit.PASSIVES,
+            vsources=self.circuit.VSOURCES,
+            device_map=self.circuit.device_map,
+            dimensions=self.circuit.device_dimensions,
+            passive_params=self.circuit.passive_params,
+            vsource_params=vsource_params,
+            output_path=Path(output_path),
+        )

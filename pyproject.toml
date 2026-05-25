@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mosplot"
-version = "0.5.0"
+version = "0.6.0"
 description = "Mosfet plotting and simulation package."
 authors = [
     { name = "Mohamed Watfa", email = "medwatt@hotmail.com" }
@@ -15,6 +15,7 @@ dependencies = [
     "matplotlib",
     "scipy",
     "cma",
+    "numba",
 ]
 classifiers = [
     "Programming Language :: Python :: 3",

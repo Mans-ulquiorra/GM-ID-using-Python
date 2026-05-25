@@ -1,16 +1,10 @@
-# imports <<<
 from __future__ import annotations
 
 from typing import Any
 
 import numpy as np
 
-from ..expressions import Expression
-# >>>
-
-
-def load_lookup_table(path: str) -> dict:
-    return np.load(path, allow_pickle=True)["lookup_table"].item()
+from .expression import Expression
 
 
 def evaluate_expression(
@@ -18,6 +12,7 @@ def evaluate_expression(
     table: dict,
     filter_by_rows: np.ndarray | None = None,
 ) -> tuple[Any, str]:
+    """Evaluate an expression against a table dict, optionally filtering rows."""
     _filter = np.array([]) if filter_by_rows is None else filter_by_rows
     var_list = []
     for var in expression.variables:

@@ -50,7 +50,7 @@ def parse_file(fname):
             key = mdata[0].lower().strip()
             if key in mdata_list:
                 # A new Plotname before we finished the previous block means
-                # the previous block had no data — drop it and start fresh.
+                # the previous block had no data -- drop it and start fresh.
                 if key == b"plotname" and plot:
                     plot = {}
                     nvars = 0
