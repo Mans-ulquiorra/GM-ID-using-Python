@@ -47,35 +47,19 @@ class Circuit:
     """gm/ID optimizer for 5T OTA with NMOS Input Pair."""
 
     MOSFETS: ClassVar[list[Instance]] = [
-        Instance("M1a", "M1a", d="n01", g="VINP", s="n02", b="gnd"),
-        Instance("M1b", "M1b", d="VOUT", g="VINN", s="n02", b="gnd"),
-        Instance("M2a", "M2a", d="n01", g="n01", s="vdd", b="vdd"),
-        Instance("M2b", "M2b", d="VOUT", g="n01", s="vdd", b="vdd"),
-        Instance("M3", "M3", d="n02", g="gnd", s="gnd", b="gnd"),
+        Instance("M1a", "nmos", d="n01", g="VINP", s="n02", b="gnd"),
+        Instance("M1b", "nmos", d="VOUT", g="VINN", s="n02", b="gnd"),
+        Instance("M2a", "pmos", d="n01", g="n01", s="vdd", b="vdd"),
+        Instance("M2b", "pmos", d="VOUT", g="n01", s="vdd", b="vdd"),
+        Instance("M3", "nmos", d="n02", g="vbn", s="gnd", b="gnd"),
     ]
 
     PASSIVES: ClassVar[list[Passive]] = [
-        Passive("COUT", "cap", a="VOUT", b="gnd"),
-    ]
-
-    VSOURCES: ClassVar[list[VSource]] = [
-        VSource("VDD", p="vdd", n="gnd"),
-        VSource("VBN", p="VBN", n="gnd"),
-    ]
-
-    NETLIST_MOSFETS: ClassVar[list[Instance]] = [
-        Instance("M1a", "M1a", d="n01", g="VINP", s="n02", b="gnd"),
-        Instance("M1b", "M1b", d="VOUT", g="VINN", s="n02", b="gnd"),
-        Instance("M2a", "M2a", d="n01", g="n01", s="vdd", b="vdd"),
-        Instance("M2b", "M2b", d="VOUT", g="n01", s="vdd", b="vdd"),
-        Instance("M3", "M3", d="n02", g="vbn", s="gnd", b="gnd"),
-    ]
-
-    NETLIST_PASSIVES: ClassVar[list[Passive]] = [
         Passive("COUT", "cap", a="VOUT", b="gnd", external=True),
     ]
 
-    NETLIST_VSOURCES: ClassVar[list[VSource]] = [
+    VSOURCES: ClassVar[list[VSource]] = [
+        VSource("VDD", p="vdd", n="gnd", supply=True),
         VSource("VBN", p="vbn", n="gnd"),
     ]
 
@@ -97,56 +81,7 @@ class Circuit:
         self.nmos = FastMosfet(lut, nmos_name, cache_dir="~/.cache/mosplot/fast_tables")
         self.pmos = FastMosfet(lut, pmos_name, cache_dir="~/.cache/mosplot/fast_tables")
         self._gdsid = Expression(["gds", "id"], function=lambda g, i: g / np.abs(i))
-        self.device_map: dict[str, dict[str, Any]] = {
-            "M1a": {
-                "transistor": self.nmos,
-                "model": nmos_name,
-                "length": None,
-                "gmid": None,
-                "current": 0.0,
-                "instances": 1,
-            },
-            "M1b": {
-                "transistor": self.nmos,
-                "model": nmos_name,
-                "length": None,
-                "gmid": None,
-                "current": 0.0,
-                "instances": 1,
-            },
-            "M2a": {
-                "transistor": self.pmos,
-                "model": pmos_name,
-                "length": None,
-                "gmid": None,
-                "current": 0.0,
-                "instances": 1,
-            },
-            "M2b": {
-                "transistor": self.pmos,
-                "model": pmos_name,
-                "length": None,
-                "gmid": None,
-                "current": 0.0,
-                "instances": 1,
-            },
-            "M3": {
-                "transistor": self.nmos,
-                "model": nmos_name,
-                "length": None,
-                "gmid": None,
-                "current": 0.0,
-                "instances": 1,
-            },
-            "Mvbn": {
-                "transistor": self.nmos,
-                "model": nmos_name,
-                "length": None,
-                "gmid": None,
-                "current": 0.0,
-                "instances": 1,
-            },
-        }
+        self.device_map: dict[str, str] = {"nmos": nmos_name, "pmos": pmos_name}
         self.device_dimensions: dict[str, dict[str, float]] = {}
         self.device_operating_points: dict[str, dict[str, float]] = {}
         self.passive_params: dict[str, float] = {}
@@ -534,9 +469,9 @@ def _generate_simulation_netlist(optimizer: Optimizer, output_path: str) -> None
         context={"vcm": circuit.vin_cm, "vout_dc": specs.get("VOUT_DC", circuit.vin_cm)},
     )
     generator.generate(
-        mosfets=circuit.NETLIST_MOSFETS,
-        passives=circuit.NETLIST_PASSIVES,
-        vsources=circuit.NETLIST_VSOURCES,
+        mosfets=circuit.MOSFETS,
+        passives=circuit.PASSIVES,
+        vsources=circuit.VSOURCES,
         device_map=circuit.device_map,
         dimensions=circuit.device_dimensions,
         passive_params=circuit.passive_params,

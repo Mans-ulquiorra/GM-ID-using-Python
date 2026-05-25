@@ -59,8 +59,8 @@ class SpectreGenerator(NetlistGenerator):
         lines.append(f"subckt {self.name} ({port_str})")
 
         for inst in mosfets:
-            model = device_map[inst.group]["model"]
-            dim = dimensions[inst.group]
+            model = device_map[inst.kind]
+            dim = dimensions[inst.name]
             d, g, s, b = (self._node(x) for x in (inst.d, inst.g, inst.s, inst.b))
             l_str = si(dim["Length"])
             w_str = si(dim["Width"])
@@ -77,6 +77,8 @@ class SpectreGenerator(NetlistGenerator):
                 lines.append(f"{passive.name} ({a} {b}) resistor r={si(val)}")
 
         for vs in vsources:
+            if getattr(vs, "supply", False):
+                continue
             p, n = self._node(vs.p), self._node(vs.n)
             lines.append(f"{vs.name} ({p} {n}) vsource dc={si(vsource_params[vs.name])}")
 

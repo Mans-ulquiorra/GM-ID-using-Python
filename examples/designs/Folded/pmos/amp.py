@@ -52,50 +52,25 @@ class Circuit:
     """
 
     MOSFETS: ClassVar[list[Instance]] = [
-        Instance("M1a", "M1a", d="n01", g="VINP", s="n02", b="vdd"),
-        Instance("M1b", "M1b", d="n03", g="VINN", s="n02", b="vdd"),
-        Instance("M2a", "M2a", d="n01", g="gnd", s="gnd", b="gnd"),
-        Instance("M2b", "M2b", d="n03", g="gnd", s="gnd", b="gnd"),
-        Instance("M3a", "M3a", d="n04", g="gnd", s="n01", b="gnd"),
-        Instance("M3b", "M3b", d="VOUT", g="gnd", s="n03", b="gnd"),
-        Instance("M4a", "M4a", d="n04", g="vdd", s="n05", b="vdd"),
-        Instance("M4b", "M4b", d="VOUT", g="vdd", s="n06", b="vdd"),
-        Instance("M5a", "M5a", d="n05", g="n04", s="vdd", b="vdd"),
-        Instance("M5b", "M5b", d="n06", g="n04", s="vdd", b="vdd"),
-        Instance("M6", "M6", d="n02", g="vdd", s="vdd", b="vdd"),
+        Instance("M1a", "pmos", d="n01", g="VINP", s="n02", b="vdd"),
+        Instance("M1b", "pmos", d="n03", g="VINN", s="n02", b="vdd"),
+        Instance("M2a", "nmos", d="n01", g="vbn", s="gnd", b="gnd"),
+        Instance("M2b", "nmos", d="n03", g="vbn", s="gnd", b="gnd"),
+        Instance("M3a", "nmos", d="n04", g="vcascn", s="n01", b="gnd"),
+        Instance("M3b", "nmos", d="VOUT", g="vcascn", s="n03", b="gnd"),
+        Instance("M4a", "pmos", d="n04", g="vcascp", s="n05", b="vdd"),
+        Instance("M4b", "pmos", d="VOUT", g="vcascp", s="n06", b="vdd"),
+        Instance("M5a", "pmos", d="n05", g="n04", s="vdd", b="vdd"),
+        Instance("M5b", "pmos", d="n06", g="n04", s="vdd", b="vdd"),
+        Instance("M6", "pmos", d="n02", g="vbtail", s="vdd", b="vdd"),
     ]
 
     PASSIVES: ClassVar[list[Passive]] = [
-        Passive("COUT", "cap", a="VOUT", b="gnd"),
-    ]
-
-    VSOURCES: ClassVar[list[VSource]] = [
-        VSource("VDD", p="vdd", n="gnd"),
-        VSource("VBN", p="VBN", n="gnd"),
-        VSource("VCASCN", p="VCASCN", n="gnd"),
-        VSource("VCASCP", p="VCASCP", n="gnd"),
-        VSource("VBTAIL", p="VBTAIL", n="gnd"),
-    ]
-
-    NETLIST_MOSFETS: ClassVar[list[Instance]] = [
-        Instance("M1a", "M1a", d="n01", g="VINP", s="n02", b="vdd"),
-        Instance("M1b", "M1b", d="n03", g="VINN", s="n02", b="vdd"),
-        Instance("M2a", "M2a", d="n01", g="vbn", s="gnd", b="gnd"),
-        Instance("M2b", "M2b", d="n03", g="vbn", s="gnd", b="gnd"),
-        Instance("M3a", "M3a", d="n04", g="vcascn", s="n01", b="gnd"),
-        Instance("M3b", "M3b", d="VOUT", g="vcascn", s="n03", b="gnd"),
-        Instance("M4a", "M4a", d="n04", g="vcascp", s="n05", b="vdd"),
-        Instance("M4b", "M4b", d="VOUT", g="vcascp", s="n06", b="vdd"),
-        Instance("M5a", "M5a", d="n05", g="n04", s="vdd", b="vdd"),
-        Instance("M5b", "M5b", d="n06", g="n04", s="vdd", b="vdd"),
-        Instance("M6", "M6", d="n02", g="vbtail", s="vdd", b="vdd"),
-    ]
-
-    NETLIST_PASSIVES: ClassVar[list[Passive]] = [
         Passive("COUT", "cap", a="VOUT", b="gnd", external=True),
     ]
 
-    NETLIST_VSOURCES: ClassVar[list[VSource]] = [
+    VSOURCES: ClassVar[list[VSource]] = [
+        VSource("VDD", p="vdd", n="gnd", supply=True),
         VSource("VBTAIL", p="vbtail", n="gnd"),
         VSource("VCASCN", p="vcascn", n="gnd"),
         VSource("VBN", p="vbn", n="gnd"),
@@ -122,112 +97,7 @@ class Circuit:
         self.nmos = FastMosfet(lut, nmos_name, cache_dir="~/.cache/mosplot/fast_tables")
         self.pmos = FastMosfet(lut, pmos_name, cache_dir="~/.cache/mosplot/fast_tables")
         self._gdsid = Expression(["gds", "id"], function=lambda g, i: g / np.abs(i))
-        self.device_map: dict[str, dict[str, Any]] = {
-            "M1a": {
-                "transistor": self.pmos,
-                "model": pmos_name,
-                "length": None,
-                "gmid": None,
-                "current": 0.0,
-                "instances": 1,
-            },
-            "M1b": {
-                "transistor": self.pmos,
-                "model": pmos_name,
-                "length": None,
-                "gmid": None,
-                "current": 0.0,
-                "instances": 1,
-            },
-            "M2a": {
-                "transistor": self.nmos,
-                "model": nmos_name,
-                "length": None,
-                "gmid": None,
-                "current": 0.0,
-                "instances": 1,
-            },
-            "M2b": {
-                "transistor": self.nmos,
-                "model": nmos_name,
-                "length": None,
-                "gmid": None,
-                "current": 0.0,
-                "instances": 1,
-            },
-            "M3a": {
-                "transistor": self.nmos,
-                "model": nmos_name,
-                "length": None,
-                "gmid": None,
-                "current": 0.0,
-                "instances": 1,
-            },
-            "M3b": {
-                "transistor": self.nmos,
-                "model": nmos_name,
-                "length": None,
-                "gmid": None,
-                "current": 0.0,
-                "instances": 1,
-            },
-            "M4a": {
-                "transistor": self.pmos,
-                "model": pmos_name,
-                "length": None,
-                "gmid": None,
-                "current": 0.0,
-                "instances": 1,
-            },
-            "M4b": {
-                "transistor": self.pmos,
-                "model": pmos_name,
-                "length": None,
-                "gmid": None,
-                "current": 0.0,
-                "instances": 1,
-            },
-            "M5a": {
-                "transistor": self.pmos,
-                "model": pmos_name,
-                "length": None,
-                "gmid": None,
-                "current": 0.0,
-                "instances": 1,
-            },
-            "M5b": {
-                "transistor": self.pmos,
-                "model": pmos_name,
-                "length": None,
-                "gmid": None,
-                "current": 0.0,
-                "instances": 1,
-            },
-            "M6": {
-                "transistor": self.pmos,
-                "model": pmos_name,
-                "length": None,
-                "gmid": None,
-                "current": 0.0,
-                "instances": 1,
-            },
-            "Mvbn": {
-                "transistor": self.nmos,
-                "model": nmos_name,
-                "length": None,
-                "gmid": None,
-                "current": 0.0,
-                "instances": 1,
-            },
-            "Mvbtail": {
-                "transistor": self.pmos,
-                "model": pmos_name,
-                "length": None,
-                "gmid": None,
-                "current": 0.0,
-                "instances": 1,
-            },
-        }
+        self.device_map: dict[str, str] = {"nmos": nmos_name, "pmos": pmos_name}
         self.device_dimensions: dict[str, dict[str, float]] = {}
         self.device_operating_points: dict[str, dict[str, float]] = {}
         self.passive_params: dict[str, float] = {}
@@ -969,9 +839,9 @@ def _generate_simulation_netlist(optimizer: Optimizer, output_path: str) -> None
         context={"vcm": circuit.vin_cm, "vout_dc": specs["VOUT_DC"]},
     )
     generator.generate(
-        mosfets=circuit.NETLIST_MOSFETS,
-        passives=circuit.NETLIST_PASSIVES,
-        vsources=circuit.NETLIST_VSOURCES,
+        mosfets=circuit.MOSFETS,
+        passives=circuit.PASSIVES,
+        vsources=circuit.VSOURCES,
         device_map=circuit.device_map,
         dimensions=circuit.device_dimensions,
         passive_params=circuit.passive_params,

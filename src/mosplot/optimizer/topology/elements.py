@@ -8,7 +8,7 @@ class Instance:
     """One transistor instance in the circuit topology."""
 
     name: str
-    group: str  # key into Circuit.device_map and device_dimensions
+    kind: str  # device type key ("nmos" or "pmos")
     d: str
     g: str
     s: str
@@ -41,3 +41,4 @@ class VSource:
     name: str
     p: str  # driven (bias) node
     n: str  # reference node (typically "vss")
+    supply: bool = field(default=False)
