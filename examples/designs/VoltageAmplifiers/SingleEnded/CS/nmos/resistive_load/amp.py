@@ -44,11 +44,7 @@ def scalar(v: Any) -> float:
 
 
 class Circuit:
-    """gm/ID optimizer for A010001.
-
-    Design cell name: A010001
-    Input: SE  Output: SE  Feedback: NONE
-    """
+    """CS amplifier with resistive load."""
 
     MOSFETS: ClassVar[list[Instance]] = [
         Instance("M1", "nmos", d="VOUT", g="VIN", s="gnd", b="gnd"),

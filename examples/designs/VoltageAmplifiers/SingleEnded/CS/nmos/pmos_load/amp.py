@@ -35,14 +35,7 @@ def scalar(v: Any) -> float:
 
 
 class Circuit:
-    """CS amplifier with PMOS active load.
-
-    M1 (NMOS): driver, gate = VIN, drain = VOUT, source = gnd.
-    M2 (PMOS): active load, gate = vb (internal bias), drain = VOUT, source = vdd.
-
-    VB is an internal voltage source set by compute_vsource_params().
-    Both devices share the same drain current (M2_ID = M1_ID).
-    """
+    """CS amplifier with PMOS active load."""
 
     MOSFETS: ClassVar[list[Instance]] = [
         Instance("M1", "nmos", d="VOUT", g="VIN", s="gnd", b="gnd"),

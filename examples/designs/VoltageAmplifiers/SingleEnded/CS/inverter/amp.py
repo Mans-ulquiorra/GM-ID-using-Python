@@ -1,9 +1,3 @@
-"""gm/ID optimizer for CMOS inverter amplifier.
-
-CS amplifier with complementary NMOS/PMOS — both gates tied to VIN.
-Self-biased: VIN_DC = VDD/2 gives VOUT_DC ≈ VDD/2 for a balanced design.
-"""
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -33,11 +27,7 @@ def scalar(v: Any) -> float:
 
 
 class Circuit:
-    """CMOS inverter used as a common-source amplifier.
-
-    Both NMOS and PMOS gates are tied to VIN.  VIN_DC sets the
-    self-bias point where ID_NMOS == ID_PMOS at VOUT_DC.
-    """
+    """CMOS inverter used as a common-source amplifier."""
 
     MOSFETS: ClassVar[list[Instance]] = [
         Instance("M1", "nmos", d="VOUT", g="VIN", s="gnd", b="gnd"),
