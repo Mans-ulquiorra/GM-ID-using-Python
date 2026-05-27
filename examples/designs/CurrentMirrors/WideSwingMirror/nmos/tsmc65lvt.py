@@ -1,40 +1,3 @@
-"""User-editable configuration for the generated gm/ID optimizer.
-
-This is the file you normally run and edit.  The sibling amp.py
-file contains the circuit model and equations.  Use this config file
-for technology paths, fixed bias conditions, optimizer settings,
-optimization variables, and target specs.
-
-How the optimizer works:
-- PARAMETERS define the variables CMA-ES/SLSQP are allowed to change.
-- Circuit conditions such as VDD, VOUT_DC, and load capacitance are fixed.
-- The circuit model uses gm/ID lookup tables to compute operating
-  points, device widths, currents, small-signal parameters, and specs.
-- TARGET_SPECS assigns goals to returned spec names.  Specs with mode
-  "max" are pushed above the target; specs with mode "min" are pushed
-  below the target.
-
-Wide-Swing Cascode Current Mirror topology:
-  M1, M2 : bottom mirror pair (gates tied to IREF)
-  M3, M4 : cascode pair (gates tied to VBN)
-  M1+M4 : input branch  (carry IREF)
-  M2+M3 : output branch (carry K * IREF)
-
-Adding an optimization parameter:
-- Add an OptimizationParameter entry here only for a variable that the
-  circuit model reads from params[...] in evaluate_specs().
-- Circuit variables: IREF, K, GMID_M1, L_M1, GMID_M3, L_M3.
-- M1 and M2 share the same GMID and L (matched pair).
-- M3 and M4 share the same GMID and L (cascode pair).
-
-Adding a target spec:
-- The key must exist in the dictionary returned by evaluate_specs().
-- Available keys: "Rout", "DC Gain", "Vcompliance", "Iout", "Area",
-  "Itotal", "VOUT_DC", "VBN", "VOUT_MIN", "VOUT_MAX", "Output_Swing".
-- To add a new spec, first compute and return it in amp.py,
-  then add a matching TARGET_SPECS entry here.
-"""
-
 from mirror import run, OptimizationParameter, Spec
 
 
@@ -48,16 +11,16 @@ VDD = 1.2
 COUT = 1e-12
 LMIN = 200e-09
 LMAX = 7.5e-06
-IREF = 5e-6         # reference current from bias generator
-K = 4.0             # current mirror gain = Iout / Iref
-VDSAT_MARGIN = 0.1  # VDSAT safety margin for M1/M2 bottom devices
+IREF = 5e-6          # reference current from bias generator
+K = 4.0              # current mirror gain = Iout / Iref
+VDSAT_MARGIN = 0.05  # VDSAT safety margin for M1/M2 bottom devices
 
 
 # === Optimizer settings (edit these) ==========================================
-MAXITER = 200
+MAXITER = 500
 SEED = 1
 N_RESTARTS = 1
-FIXED_POINT_ITERATIONS = 5
+FIXED_POINT_ITERATIONS = 10
 
 
 # === Optimization parameters (L bounds must match LUT range) ==================
@@ -77,7 +40,7 @@ PARAMETERS = [
 # Spec(target, mode, weight), where mode is "max" or "min".
 TARGET_SPECS = {
     "Rout": Spec(5e9, "max", 1.0),
-    "Area": Spec(200e-12, "min", 1.0),
+    "Area": Spec(20e-12, "min", 10.0),
     "Vcompliance": Spec(0.2, "min", 2.0),
 }
 

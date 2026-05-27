@@ -1,0 +1,8 @@
+parameters iout=20u iref=5u k=4 rout=16.2M vbn=698.5m vcompliance=389.6m vdd=1.2 vout_dc=600m
+subckt Current_Mirror (IREF VOUT vdd vss)
+M1 (n01 IREF vss vss) nch_lvt l=1.5u w=796.7n
+M2 (n02 IREF vss vss) nch_lvt l=1.5u w=3.187u
+M3 (VOUT vbn n02 vss) nch_lvt l=1.5u w=9.469u
+M4 (IREF vbn n01 vss) nch_lvt l=1.5u w=2.393u
+VBN (vbn vss) vsource dc=698.5m
+ends Current_Mirror

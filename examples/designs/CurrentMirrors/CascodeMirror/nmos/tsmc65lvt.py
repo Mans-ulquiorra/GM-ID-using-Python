@@ -15,10 +15,10 @@ IREF = 5e-6  # reference current from bias generator
 K = 4.0  # current mirror gain = Iout / Iref
 
 # === Optimizer settings (edit these) ==========================================
-MAXITER = 200
+MAXITER = 500
 SEED = 1
 N_RESTARTS = 1
-FIXED_POINT_ITERATIONS = 5
+FIXED_POINT_ITERATIONS = 10
 
 
 # === Optimization parameters (L bounds must match LUT range) ==================
@@ -37,8 +37,8 @@ PARAMETERS = [
 # === Target specs (edit these) ===============================================
 TARGET_SPECS = {
     "Rout": Spec(5e9, "max", 1.0),
-    "Area": Spec(100e-12, "min", 1.0),
-    "Vcompliance": Spec(0.2, "min", 2.0),
+    "Area": Spec(20e-12, "min", 10.0),
+    "Vcompliance": Spec(0.3, "min", 2.0),
 }
 
 

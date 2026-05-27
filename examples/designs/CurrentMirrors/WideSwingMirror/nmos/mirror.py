@@ -44,12 +44,7 @@ def scalar(v: Any) -> float:
 
 
 class Circuit:
-    """Wide-swing cascode NMOS current mirror.
-
-    Decouples gate and drain of reference devices so the bottom
-    pair sits at VDSAT+margin. Better compliance than standard cascode.
-    Requires external VBN.
-    """
+    """Wide-swing cascode NMOS current mirror."""
 
     MOSFETS: ClassVar[list[Instance]] = [
         Instance("M1", "nmos", d="n01", g="IREF", s="gnd", b="gnd"),

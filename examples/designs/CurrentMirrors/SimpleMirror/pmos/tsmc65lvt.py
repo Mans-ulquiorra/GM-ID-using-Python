@@ -25,7 +25,7 @@ PARAMETERS = [
 
 TARGET_SPECS = {
     "Rout": Spec(5e9, "max", 1.0),
-    "Area": Spec(200e-12, "min", 1.0),
+    "Area": Spec(20e-12, "min", 10.0),
     "Vcompliance": Spec(0.2, "min", 2.0),
 }
 

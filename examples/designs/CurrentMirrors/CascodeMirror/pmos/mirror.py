@@ -44,11 +44,7 @@ def scalar(v: Any) -> float:
 
 
 class Circuit:
-    """Standard cascode PMOS current mirror.
-
-    Diode-stacked reference branch -- self-biased, no external VBP.
-    Cascode output boosts Rout at the cost of headroom.
-    """
+    """Standard cascode PMOS current mirror."""
 
     MOSFETS: ClassVar[list[Instance]] = [
         Instance("M1", "pmos", d="n01",  g="n01",  s="vdd", b="vdd"),

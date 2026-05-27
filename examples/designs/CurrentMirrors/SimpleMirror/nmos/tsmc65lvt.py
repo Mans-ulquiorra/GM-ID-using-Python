@@ -1,5 +1,3 @@
-"""Simple 2-transistor NMOS current mirror config."""
-
 from mirror import run, OptimizationParameter, Spec
 
 LOOKUP_TABLE = "/home/medwatt/coding/gmid_lookup/tsmc_65_lv_spectre.npz"
@@ -13,10 +11,10 @@ LMAX = 7.5e-06
 IREF = 5e-6
 K = 4.0
 
-MAXITER = 200
+MAXITER = 500
 SEED = 1
 N_RESTARTS = 1
-FIXED_POINT_ITERATIONS = 5
+FIXED_POINT_ITERATIONS = 10
 
 PARAMETERS = [
     OptimizationParameter("GMID", (8.0, 15.0)),
@@ -25,7 +23,7 @@ PARAMETERS = [
 
 TARGET_SPECS = {
     "Rout": Spec(5e9, "max", 1.0),
-    "Area": Spec(200e-12, "min", 1.0),
+    "Area": Spec(20e-12, "min", 10.0),
     "Vcompliance": Spec(0.2, "min", 2.0),
 }
 
