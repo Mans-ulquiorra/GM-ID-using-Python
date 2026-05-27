@@ -1,10 +1,4 @@
-"""Numerical kernels for reduced-MNA AC analysis.
-
-These functions are deliberately free of circuit names and Python objects. The
-``SmallSignalModel`` compiles nodes into integer arrays once; these kernels then
-only receive numeric matrices/vectors so optimizer loops avoid repeated string
-lookups and branch-heavy stamping.
-"""
+"""Numerical kernels for reduced-MNA AC analysis."""
 
 from __future__ import annotations
 
@@ -132,9 +126,8 @@ def phase_margin(
 ) -> float:
     """Estimate phase margin at the unity-gain frequency.
 
-    The phase is normalized by the real DC gain to remove arbitrary inversion
-    sign. A small log-spaced path from low frequency to UGF is retained so
-    phase unwrap behaves like the previous Python implementation.
+    The phase is normalized by the real DC gain to remove arbitrary
+    inversion sign.
     """
 
     if not np.isfinite(gbw_hz) or gbw_hz <= 0.0:
@@ -182,21 +175,18 @@ def phase_margin(
 @njit(cache=True)
 def stamp_admittance(
     mat: np.ndarray,
-    rhs_dm: np.ndarray,
-    rhs_cm: np.ndarray,
+    rhs: np.ndarray,
     value: float,
     ia: int,
     ib: int,
-    dm_a: float,
-    cm_a: float,
-    dm_b: float,
-    cm_b: float,
+    known_a: float,
+    known_b: float,
 ) -> None:
     """Stamp a passive admittance between two nodes.
 
     Entering-current KCL is used. For row ``a`` the contribution is
     ``value * (Vb - Va)``. If either terminal is a known node, that terminal's
-    voltage is moved to the RHS for both differential and common-mode solves.
+    voltage is moved to the RHS.
     """
 
     if value == 0.0:
@@ -207,32 +197,27 @@ def stamp_admittance(
         if ib != UNKNOWN_NODE:
             mat[ia, ib] += value
         else:
-            rhs_dm[ia] -= value * dm_b
-            rhs_cm[ia] -= value * cm_b
+            rhs[ia] -= value * known_b
 
     if ib != UNKNOWN_NODE:
         mat[ib, ib] -= value
         if ia != UNKNOWN_NODE:
             mat[ib, ia] += value
         else:
-            rhs_dm[ib] -= value * dm_a
-            rhs_cm[ib] -= value * cm_a
+            rhs[ib] -= value * known_a
 
 
 @njit(cache=True)
 def stamp_vccs(
     G: np.ndarray,
-    rhs_g_dm: np.ndarray,
-    rhs_g_cm: np.ndarray,
+    rhs_g: np.ndarray,
     value: float,
     op: int,
     om: int,
     cp: int,
     cm: int,
-    dm_cp: float,
-    cm_cp: float,
-    dm_cm: float,
-    cm_cm: float,
+    known_cp: float,
+    known_cm: float,
 ) -> None:
     """Stamp a current source ``value * (Vcp - Vcm)`` from ``op`` to ``om``."""
 
@@ -243,27 +228,23 @@ def stamp_vccs(
         if cp != UNKNOWN_NODE:
             G[op, cp] -= value
         else:
-            rhs_g_dm[op] += value * dm_cp
-            rhs_g_cm[op] += value * cm_cp
+            rhs_g[op] += value * known_cp
 
         if cm != UNKNOWN_NODE:
             G[op, cm] += value
         else:
-            rhs_g_dm[op] -= value * dm_cm
-            rhs_g_cm[op] -= value * cm_cm
+            rhs_g[op] -= value * known_cm
 
     if om != UNKNOWN_NODE:
         if cp != UNKNOWN_NODE:
             G[om, cp] += value
         else:
-            rhs_g_dm[om] -= value * dm_cp
-            rhs_g_cm[om] -= value * cm_cp
+            rhs_g[om] -= value * known_cp
 
         if cm != UNKNOWN_NODE:
             G[om, cm] -= value
         else:
-            rhs_g_dm[om] += value * dm_cm
-            rhs_g_cm[om] += value * cm_cm
+            rhs_g[om] += value * known_cm
 
 
 @njit(cache=True)
@@ -271,13 +252,11 @@ def assemble_compiled(
     mos_values: np.ndarray,
     cap_values: np.ndarray,
     mos_idx: np.ndarray,
-    mos_dm: np.ndarray,
-    mos_cm: np.ndarray,
+    mos_known: np.ndarray,
     cap_idx: np.ndarray,
-    cap_dm: np.ndarray,
-    cap_cm: np.ndarray,
+    cap_known: np.ndarray,
     n_nodes: int,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Assemble G/C matrices and RHS vectors from a compiled topology.
 
     MOS value columns are ``gm, gmb, gds``. MOS node columns are ``d, g, s, b``.
@@ -288,10 +267,8 @@ def assemble_compiled(
 
     G = np.zeros((n_nodes, n_nodes), dtype=np.float64)
     C = np.zeros((n_nodes, n_nodes), dtype=np.float64)
-    rhs_g_dm = np.zeros(n_nodes, dtype=np.float64)
-    rhs_c_dm = np.zeros(n_nodes, dtype=np.float64)
-    rhs_g_cm = np.zeros(n_nodes, dtype=np.float64)
-    rhs_c_cm = np.zeros(n_nodes, dtype=np.float64)
+    rhs_g = np.zeros(n_nodes, dtype=np.float64)
+    rhs_c = np.zeros(n_nodes, dtype=np.float64)
 
     for i in range(mos_values.shape[0]):
         gm = mos_values[i, 0]
@@ -304,57 +281,45 @@ def assemble_compiled(
 
         stamp_admittance(
             G,
-            rhs_g_dm,
-            rhs_g_cm,
+            rhs_g,
             gds,
             d,
             s,
-            mos_dm[i, 0],
-            mos_cm[i, 0],
-            mos_dm[i, 2],
-            mos_cm[i, 2],
+            mos_known[i, 0],
+            mos_known[i, 2],
         )
         stamp_vccs(
             G,
-            rhs_g_dm,
-            rhs_g_cm,
+            rhs_g,
             gm,
             d,
             s,
             g,
             s,
-            mos_dm[i, 1],
-            mos_cm[i, 1],
-            mos_dm[i, 2],
-            mos_cm[i, 2],
+            mos_known[i, 1],
+            mos_known[i, 2],
         )
         stamp_vccs(
             G,
-            rhs_g_dm,
-            rhs_g_cm,
+            rhs_g,
             gmb,
             d,
             s,
             b,
             s,
-            mos_dm[i, 3],
-            mos_cm[i, 3],
-            mos_dm[i, 2],
-            mos_cm[i, 2],
+            mos_known[i, 3],
+            mos_known[i, 2],
         )
 
     for i in range(cap_values.shape[0]):
         stamp_admittance(
             C,
-            rhs_c_dm,
-            rhs_c_cm,
+            rhs_c,
             cap_values[i],
             cap_idx[i, 0],
             cap_idx[i, 1],
-            cap_dm[i, 0],
-            cap_cm[i, 0],
-            cap_dm[i, 1],
-            cap_cm[i, 1],
+            cap_known[i, 0],
+            cap_known[i, 1],
         )
 
-    return G, C, rhs_g_dm, rhs_c_dm, rhs_g_cm, rhs_c_cm
+    return G, C, rhs_g, rhs_c

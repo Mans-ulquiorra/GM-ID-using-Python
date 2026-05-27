@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import NamedTuple
 
 import numpy as np
@@ -12,38 +11,33 @@ GROUND = "gnd"
 UNKNOWN_NODE = -1
 
 
-@dataclass(frozen=True)
-class SmallSignalResult:
-    """Metrics returned by a small-signal solve.
-
-    Metrics that were explicitly disabled in ``SmallSignalSolver.solve`` are
-    returned as ``None``. Gain is always computed because all other metrics
-    depend on the differential output response.
-    """
-
-    gain: float
-    ugf_hz: float | None
-    cmrr: float | None
-    phase_margin_deg: float | None
-
-
-class CompiledModel(NamedTuple):
-    """Topology compiled for one input pair and output node.
+class CompiledTransfer(NamedTuple):
+    """Topology compiled for one voltage-transfer analysis.
 
     ``*_idx`` arrays hold integer node indices. ``UNKNOWN_NODE`` means the node
     is either ground or a known ideal input source, so its contribution belongs
-    on the RHS instead of in the matrix. ``*_dm`` and ``*_cm`` hold those known
-    differential/common-mode source values.
+    on the RHS instead of in the matrix. ``mos_known`` and ``cap_known`` hold
+    the known-node excitation values for this analysis.
     """
 
     node_idx: dict[str, int]
     mos_idx: np.ndarray
-    mos_dm: np.ndarray
-    mos_cm: np.ndarray
+    mos_known: np.ndarray
     cap_idx: np.ndarray
-    cap_dm: np.ndarray
-    cap_cm: np.ndarray
+    cap_known: np.ndarray
     out_idx: int
+
+
+class CompiledPort(NamedTuple):
+    """Topology compiled for a one-port impedance query."""
+
+    node_idx: dict[str, int]
+    mos_idx: np.ndarray
+    mos_known: np.ndarray
+    cap_idx: np.ndarray
+    cap_known: np.ndarray
+    node_idx_probe: int
+    reference_idx: int
 
 
 class MosStamp(NamedTuple):

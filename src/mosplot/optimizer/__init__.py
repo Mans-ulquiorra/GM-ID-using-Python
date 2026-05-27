@@ -1,7 +1,7 @@
 from .optimizer import Optimizer
 from .design_report import DesignReport
 from .datatypes import Spec, OptimizationParameter
-from .ac import SmallSignalResult, SmallSignalSolver
+from .ac import LinearSystem, PortAnalysis, SmallSignalSolver, TransferAnalysis
 from .fast_mosfet import FastMosfet
 from .topology.elements import Instance, Passive, VSource
 from .topology.builder import build_ss_model
@@ -12,8 +12,10 @@ __all__ = [
     "DesignReport",
     "Spec",
     "OptimizationParameter",
-    "SmallSignalResult",
+    "LinearSystem",
+    "PortAnalysis",
     "SmallSignalSolver",
+    "TransferAnalysis",
     "FastMosfet",
     "Instance",
     "Passive",

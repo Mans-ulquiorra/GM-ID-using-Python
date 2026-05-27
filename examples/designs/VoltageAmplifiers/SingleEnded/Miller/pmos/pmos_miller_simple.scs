@@ -1,0 +1,13 @@
+parameters vcm=1.65
+subckt amp (VINN VINP VOUT vdd vss)
+M1a (n01 VINN n02 vdd) sg13_hv_pmos l=400n w=3.757u
+M1b (n03 VINP n02 vdd) sg13_hv_pmos l=400n w=3.757u
+M2a (n01 n01 vss vss) sg13_hv_nmos l=400n w=5.617u
+M2b (n03 n01 vss vss) sg13_hv_nmos l=400n w=5.617u
+M3 (n02 vbp vdd vdd) sg13_hv_pmos l=1.161u w=28.1u
+M4 (VOUT n03 vss vss) sg13_hv_nmos l=400n w=9.753u
+M5 (VOUT vbp vdd vdd) sg13_hv_pmos l=1.161u w=28.1u
+Rz (n04 n03) resistor r=10k
+CC (n04 VOUT) capacitor c=479.6f
+VBP (vbp vss) vsource dc=2.478
+ends amp

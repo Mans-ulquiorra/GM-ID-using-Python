@@ -28,7 +28,7 @@ class LookupTableCleaner:
                 if new_data is None:
                     keys_to_remove.append(param)
                 elif new_data.ndim == 1 and new_data.size == 1:
-                    # Constant nonzero scalar — route to device_parameters, not parameter_names.
+                    # Constant nonzero scalar -- route to device_parameters, not parameter_names.
                     self.scalar_params[model][param] = float(new_data[0])
                     keys_to_remove.append(param)
                 else:

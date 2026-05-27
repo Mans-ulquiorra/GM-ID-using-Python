@@ -1,0 +1,18 @@
+parameters vcm=1.65 vout_dc=862.5m
+subckt amp (VINN VINP VOUT vdd vss)
+M1a (n01 VINP n02 vss) sg13_hv_nmos l=400n w=18.73u
+M1b (n03 VINN n02 vss) sg13_hv_nmos l=400n w=18.73u
+M2a (n01 vbp vdd vdd) sg13_hv_pmos l=400n w=25.5u
+M2b (n03 vbp vdd vdd) sg13_hv_pmos l=400n w=25.5u
+M3a (n04 vcascp n01 vdd) sg13_hv_pmos l=400n w=12.75u
+M3b (VOUT vcascp n03 vdd) sg13_hv_pmos l=400n w=12.75u
+M4a (n04 vcascn n05 vss) sg13_hv_nmos l=400n w=2.939u
+M4b (VOUT vcascn n06 vss) sg13_hv_nmos l=400n w=2.939u
+M5a (n05 n04 vss vss) sg13_hv_nmos l=400n w=2.939u
+M5b (n06 n04 vss vss) sg13_hv_nmos l=400n w=2.939u
+M6 (n02 vbn vss vss) sg13_hv_nmos l=400n w=5.685u
+VCASCP (vcascp vss) vsource dc=1.846
+VBN (vbn vss) vsource dc=853.3m
+VBP (vbp vss) vsource dc=2.532
+VCASCN (vcascn vss) vsource dc=1.455
+ends amp

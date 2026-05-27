@@ -3,6 +3,7 @@
 The implementation is split across a few small modules:
 
 * :mod:`mosplot.optimizer.ac.model` stores reusable topology compilation.
+* :mod:`mosplot.optimizer.ac.analysis` stores concrete analysis objects.
 * :mod:`mosplot.optimizer.ac.kernels` stores hot numerical kernels.
 * :mod:`mosplot.optimizer.ac._types` stores shared containers and constants.
 """
@@ -11,7 +12,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from ._types import GROUND, CapStamp, MosStamp, SmallSignalResult
+from ._types import GROUND, CapStamp, MosStamp
+from .analysis import PortAnalysis, TransferAnalysis
 from .model import SmallSignalModel
 
 
@@ -128,33 +130,36 @@ class SmallSignalSolver:
         cap_values = np.array([c.c for c in self._caps], dtype=float)
         return model, mos_values, cap_values
 
-    def solve(
+    def transfer(
         self,
         *,
         inputs: dict[str, float],
         out: str,
-        cm_inputs: dict[str, float] | None = None,
         gbw_iters: int = 32,
-        compute_cmrr: bool = False,
-        compute_gbw: bool = True,
-        compute_phase_margin: bool = True,
-    ) -> SmallSignalResult:
-        """Solve the stamped circuit.
-
-        Disabled metrics are returned as ``None``. Phase margin requires a GBW
-        crossing, so ``compute_phase_margin=True`` with ``compute_gbw=False`` is
-        rejected by ``SmallSignalModel.solve``.
-        """
+    ) -> TransferAnalysis:
+        """Create a reusable voltage-transfer analysis."""
 
         model, mos_values, cap_values = self._as_model_and_values()
-        return model.solve(
+        return model.transfer(
             mos_values,
             cap_values,
             inputs=inputs,
-            cm_inputs=cm_inputs,
             out=out,
             gbw_iters=gbw_iters,
-            compute_cmrr=compute_cmrr,
-            compute_gbw=compute_gbw,
-            compute_phase_margin=compute_phase_margin,
+        )
+
+    def port(
+        self,
+        node: str,
+        *,
+        reference: str = GROUND,
+    ) -> PortAnalysis:
+        """Create a reusable one-port impedance analysis."""
+
+        model, mos_values, cap_values = self._as_model_and_values()
+        return model.port(
+            mos_values,
+            cap_values,
+            node=node,
+            reference=reference,
         )

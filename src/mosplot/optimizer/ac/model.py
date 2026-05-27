@@ -7,8 +7,10 @@ from functools import cached_property, lru_cache
 
 import numpy as np
 
-from ._types import CompiledModel, GROUND, UNKNOWN_NODE, SmallSignalResult
-from .kernels import assemble_compiled, find_unity_gain, phase_margin
+from ._types import CompiledPort, CompiledTransfer, GROUND, UNKNOWN_NODE
+from .analysis import PortAnalysis, TransferAnalysis
+from .kernels import assemble_compiled
+from .system import LinearSystem
 
 
 InputItems = tuple[tuple[str, float], ...]
@@ -31,58 +33,36 @@ def _node_index_and_known(
     node: str,
     node_idx: dict[str, int],
     inputs: InputItems,
-    cm_inputs: InputItems,
-) -> tuple[int, float, float]:
+) -> tuple[int, float]:
     """Map a node name to either a matrix index or a known-source value."""
 
     idx = node_idx.get(node)
     if idx is not None:
-        return idx, 0.0, 0.0
-    return UNKNOWN_NODE, _input_value(node, inputs), _input_value(node, cm_inputs)
+        return idx, 0.0
+    return UNKNOWN_NODE, _input_value(node, inputs)
 
 
 def _compile_node_maps(
     node_idx: dict[str, int],
     node_groups: tuple[tuple[str, ...], ...],
     inputs: InputItems,
-    cm_inputs: InputItems,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray]:
     """Compile node-name tuples into index and known-source arrays.
 
     ``node_groups`` is either a tuple of MOS nodes ``(d, g, s, b)`` or a tuple
     of capacitor nodes ``(a, b)``. The returned arrays have matching shape:
 
     * ``idx``: matrix row/column indices, or ``UNKNOWN_NODE``
-    * ``dm``: known-node voltage for the requested AC input
-    * ``cm``: known-node voltage for the optional common-mode input
+    * ``known``: known-node voltage for the requested AC input
     """
 
     width = len(node_groups[0]) if node_groups else 0
     idx = np.empty((len(node_groups), width), dtype=np.int64)
-    dm = np.zeros_like(idx, dtype=float)
-    cm = np.zeros_like(idx, dtype=float)
+    known = np.zeros_like(idx, dtype=float)
     for i, nodes in enumerate(node_groups):
         for j, node in enumerate(nodes):
-            idx[i, j], dm[i, j], cm[i, j] = _node_index_and_known(node, node_idx, inputs, cm_inputs)
-    return idx, dm, cm
-
-
-def _dc_solve(
-    G: np.ndarray,
-    rhs_dm: np.ndarray,
-    rhs_cm: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Solve differential and common-mode DC systems in one dense solve."""
-
-    rhs = np.column_stack((rhs_dm, rhs_cm))
-    solution = np.linalg.solve(G, rhs)
-    return solution[:, 0], solution[:, 1]
-
-
-def _dc_solve_one(G: np.ndarray, rhs: np.ndarray) -> np.ndarray:
-    """Solve only the differential DC system when CMRR is not requested."""
-
-    return np.linalg.solve(G, rhs)
+            idx[i, j], known[i, j] = _node_index_and_known(node, node_idx, inputs)
+    return idx, known
 
 
 @dataclass(frozen=True)
@@ -126,7 +106,11 @@ class SmallSignalModel:
         }
 
     @lru_cache(maxsize=32)
-    def _compile(self, inputs: InputItems, cm_inputs: InputItems, out: str) -> CompiledModel:
+    def _compile_transfer(
+        self,
+        inputs: InputItems,
+        out: str,
+    ) -> CompiledTransfer:
         """Compile topology for a specific known-node set and output node.
 
         The same topology can be solved with different input vectors, so the
@@ -134,96 +118,107 @@ class SmallSignalModel:
         has exactly one such tuple, which means this work happens once.
         """
 
-        known_nodes = frozenset(node for node, _ in inputs) | frozenset(
-            node for node, _ in cm_inputs
-        )
+        known_nodes = frozenset(node for node, _ in inputs)
         node_idx = self._node_index(known_nodes)
         if out not in node_idx:
             raise ValueError(
                 f"Output node '{out}' is not an unknown node. Unknown nodes: {list(node_idx)}"
             )
 
-        mos_idx, mos_dm, mos_cm = _compile_node_maps(node_idx, self.mos_nodes, inputs, cm_inputs)
-        cap_idx, cap_dm, cap_cm = _compile_node_maps(node_idx, self.cap_nodes, inputs, cm_inputs)
-        return CompiledModel(
+        mos_idx, mos_known = _compile_node_maps(node_idx, self.mos_nodes, inputs)
+        cap_idx, cap_known = _compile_node_maps(node_idx, self.cap_nodes, inputs)
+        return CompiledTransfer(
             node_idx=node_idx,
             mos_idx=mos_idx,
-            mos_dm=mos_dm,
-            mos_cm=mos_cm,
+            mos_known=mos_known,
             cap_idx=cap_idx,
-            cap_dm=cap_dm,
-            cap_cm=cap_cm,
+            cap_known=cap_known,
             out_idx=node_idx[out],
         )
 
-    def solve(
+    @lru_cache(maxsize=32)
+    def _compile_port(self, node: str, reference: str) -> CompiledPort:
+        """Compile topology for a one-port small-signal impedance query."""
+
+        if node == reference:
+            raise ValueError("Impedance probe node and reference must be different.")
+
+        node_idx = self._node_index(frozenset())
+        if node != GROUND and node not in node_idx:
+            raise ValueError(f"Impedance probe node '{node}' is not in this topology.")
+        if reference != GROUND and reference not in node_idx:
+            raise ValueError(f"Impedance reference node '{reference}' is not in this topology.")
+
+        empty_inputs: InputItems = ()
+        mos_idx, mos_known = _compile_node_maps(node_idx, self.mos_nodes, empty_inputs)
+        cap_idx, cap_known = _compile_node_maps(node_idx, self.cap_nodes, empty_inputs)
+        return CompiledPort(
+            node_idx=node_idx,
+            mos_idx=mos_idx,
+            mos_known=mos_known,
+            cap_idx=cap_idx,
+            cap_known=cap_known,
+            node_idx_probe=node_idx.get(node, UNKNOWN_NODE),
+            reference_idx=node_idx.get(reference, UNKNOWN_NODE),
+        )
+
+    @staticmethod
+    def _assemble(
+        mos_values: np.ndarray,
+        cap_values: np.ndarray,
+        compiled: CompiledTransfer | CompiledPort,
+    ) -> tuple[LinearSystem, np.ndarray, np.ndarray]:
+        G, C, rhs_g, rhs_c = assemble_compiled(
+            mos_values,
+            cap_values,
+            compiled.mos_idx,
+            compiled.mos_known,
+            compiled.cap_idx,
+            compiled.cap_known,
+            len(compiled.node_idx),
+        )
+        system = LinearSystem(G=G, C=C, node_idx=compiled.node_idx)
+        return system, rhs_g, rhs_c
+
+    def transfer(
         self,
         mos_values: np.ndarray,
         cap_values: np.ndarray,
         *,
         inputs: dict[str, float],
-        cm_inputs: dict[str, float] | None,
         out: str,
-        gbw_iters: int,
-        compute_cmrr: bool,
-        compute_gbw: bool,
-        compute_phase_margin: bool,
-    ) -> SmallSignalResult:
-        """Solve this topology for one numeric operating point."""
+        gbw_iters: int = 32,
+    ) -> TransferAnalysis:
+        """Create a voltage-transfer analysis for one numeric operating point."""
 
         input_items = canonical_inputs(inputs)
-        cm_input_items = canonical_inputs(cm_inputs) if compute_cmrr else ()
         if not input_items:
             raise ValueError("At least one AC input must be provided.")
-        if compute_cmrr and not cm_input_items:
-            raise ValueError("CMRR requires cm_inputs.")
-        if compute_phase_margin and not compute_gbw:
-            raise ValueError(
-                "Phase margin requires GBW; set compute_gbw=True or compute_phase_margin=False."
-            )
 
-        compiled = self._compile(input_items, cm_input_items, out)
-        G, C, rhs_g_dm, rhs_c_dm, rhs_g_cm, rhs_c_cm = assemble_compiled(
-            mos_values,
-            cap_values,
-            compiled.mos_idx,
-            compiled.mos_dm,
-            compiled.mos_cm,
-            compiled.cap_idx,
-            compiled.cap_dm,
-            compiled.cap_cm,
-            len(compiled.node_idx),
+        compiled = self._compile_transfer(input_items, out)
+        system, rhs_g, rhs_c = self._assemble(mos_values, cap_values, compiled)
+        return TransferAnalysis(
+            system=system,
+            out_idx=compiled.out_idx,
+            rhs_g=rhs_g,
+            rhs_c=rhs_c,
+            gbw_iters=gbw_iters,
         )
 
-        if compute_cmrr:
-            v_dm, v_cm = _dc_solve(G, rhs_g_dm, rhs_g_cm)
-            adm = float(v_dm[compiled.out_idx])
-            acm = float(v_cm[compiled.out_idx])
-            cmrr = abs(adm / acm) if abs(acm) > 1e-30 else 1e12
-        else:
-            v_dm = _dc_solve_one(G, rhs_g_dm)
-            adm = float(v_dm[compiled.out_idx])
-            cmrr = None
+    def port(
+        self,
+        mos_values: np.ndarray,
+        cap_values: np.ndarray,
+        *,
+        node: str,
+        reference: str = GROUND,
+    ) -> PortAnalysis:
+        """Create a one-port impedance analysis for one numeric operating point."""
 
-        has_caps = bool(np.any(C != 0.0) or np.any(rhs_c_dm != 0.0))
-        if compute_gbw:
-            if has_caps:
-                gbw = float(find_unity_gain(G, C, rhs_g_dm, rhs_c_dm, compiled.out_idx, gbw_iters))
-            else:
-                gbw = float("inf") if abs(adm) >= 1.0 else 0.0
-        else:
-            gbw = None
-
-        if compute_phase_margin:
-            phase_margin_deg = float(
-                phase_margin(G, C, rhs_g_dm, rhs_c_dm, compiled.out_idx, gbw, adm)
-            )
-        else:
-            phase_margin_deg = None
-
-        return SmallSignalResult(
-            gain=adm,
-            ugf_hz=gbw,
-            cmrr=cmrr,
-            phase_margin_deg=phase_margin_deg,
+        compiled = self._compile_port(node, reference)
+        system, _, _ = self._assemble(mos_values, cap_values, compiled)
+        return PortAnalysis(
+            system=system,
+            node_idx_probe=compiled.node_idx_probe,
+            reference_idx=compiled.reference_idx,
         )

@@ -1,5 +1,12 @@
-from ._types import SmallSignalResult
+from .analysis import PortAnalysis, TransferAnalysis
 from .model import SmallSignalModel
 from .solver import SmallSignalSolver
+from .system import LinearSystem
 
-__all__ = ["SmallSignalModel", "SmallSignalResult", "SmallSignalSolver"]
+__all__ = [
+    "LinearSystem",
+    "PortAnalysis",
+    "SmallSignalModel",
+    "SmallSignalSolver",
+    "TransferAnalysis",
+]
