@@ -1,10 +1,24 @@
 """Interpolation primitives for the (L, vbs, vds, gmid) grid.
 
-Three functions are exported:
-  _resample_into      -- build-time: remap a vgs sweep onto a uniform gmid axis
-  _lookup_scalar_nb   -- scalar Numba path used by the optimizer hot loop
-  _bracket_vec        -- vectorised NumPy bracketing used by the batch path
-  _interp4d_nan       -- vectorised 4-D trilinear interpolation
+Build-time:
+  _resample_into      -- remap a vgs sweep onto a uniform gmid axis
+
+Forward lookup (existing):
+  _bracket_nb          -- Numba-JIT scalar bracketing (binary search on axis)
+  _lookup_scalar_nb    -- Numba-JIT 4-D trilinear interpolation (optimizer hot path)
+  _bracket_vec         -- vectorised NumPy bracketing (batch / plotting)
+  _interp4d_nan         -- vectorised 4-D trilinear interpolation
+
+Reverse lookup (added for FastMosfet reverse API):
+  _curve_for_param_nb  -- Numba-JIT 1-D curve extraction via 8-corner
+                           trilinear interpolation of 3 fixed axes
+  _inverse_1d_nb        -- Numba-JIT 1-D crossing solver (single pass,
+                           first crossing, NaN-gap aware, clip support)
+
+All Numba functions use @njit(cache=True) -- compiled once, machine code
+reused on subsequent runs.  The forward hot path (_lookup_scalar_nb)
+runs at ~7 µs/call; the reverse hot path (_curve_for_param_nb +
+_inverse_1d_nb) runs at ~26 µs/call.
 """
 
 from __future__ import annotations
@@ -240,3 +254,169 @@ def _interp4d_nan(data, il, il1, fl, iv, iv1, fv, id_, id1_, fd, ig, ig1, fg):
     num = (w_safe * np.where(mask, v, 0.0)).sum(axis=0)
     with np.errstate(divide="ignore", invalid="ignore"):
         return np.where(w_sum > 0, num / w_sum, np.nan)
+
+
+# ---------------------------------------------------------------------------
+# Numba-JIT curve extraction & inverse for reverse lookup hot path
+# ---------------------------------------------------------------------------
+
+
+@_njit(cache=True)
+def _curve_for_param_nb(data, free_axis_len, free_dim,
+                         ci0, ci1, ci2, ci3, ci4, ci5, ci6, ci7,
+                         cj0, cj1, cj2, cj3, cj4, cj5, cj6, cj7,
+                         ck0, ck1, ck2, ck3, ck4, ck5, ck6, ck7,
+                         wi0, wi1, wi2, wi3, wi4, wi5, wi6, wi7,
+                         dfA, dfB, dfC):
+    """JIT: extract a 1-D curve by trilinear interpolation of 3 fixed axes.
+
+    Evaluates all 8 corners of the (fixed_A, fixed_B, fixed_C) hypercube
+    at each free-axis index.  The caller (lookup_curve in table.py)
+    pre-computes the 8×4 = 32 scalars and the 3 dimension ordinals in
+    Python so the Numba kernel receives only ints and floats -- no dicts,
+    no lists, no itertools.
+
+    The 32 scalar arguments are:
+      ci0..ci7  -- index values for fixed axis A  (8 corners)
+      cj0..cj7  -- index values for fixed axis B
+      ck0..ck7  -- index values for fixed axis C
+      wi0..wi7  -- trilinear weights               (8 corners)
+      dfA,dfB,dfC -- dimension ordinals (0-3) for the three fixed axes
+
+    NaN corners are excluded from the weighted average (the check v == v
+    is False only for NaN in IEEE 754, the idiomatic NaN test in Numba).
+    If all 8 corners are NaN at a free-axis point, the result is NaN there.
+    """
+    num = np.zeros(free_axis_len)
+    den = np.zeros(free_axis_len)
+
+    # Build full 4D index arrays for the fixed dims, leaving a slot for j
+    idx = np.empty(4, dtype=np.int64)
+
+    for j in range(free_axis_len):
+        # Corner 0
+        idx[dfA] = ci0; idx[dfB] = cj0; idx[dfC] = ck0; idx[free_dim] = j
+        v = data[idx[0], idx[1], idx[2], idx[3]]
+        w = wi0
+        if v == v:
+            num[j] += w * v; den[j] += w
+
+        # Corner 1
+        idx[dfA] = ci1; idx[dfB] = cj1; idx[dfC] = ck1; idx[free_dim] = j
+        v = data[idx[0], idx[1], idx[2], idx[3]]
+        w = wi1
+        if v == v:
+            num[j] += w * v; den[j] += w
+
+        # Corner 2
+        idx[dfA] = ci2; idx[dfB] = cj2; idx[dfC] = ck2; idx[free_dim] = j
+        v = data[idx[0], idx[1], idx[2], idx[3]]
+        w = wi2
+        if v == v:
+            num[j] += w * v; den[j] += w
+
+        # Corner 3
+        idx[dfA] = ci3; idx[dfB] = cj3; idx[dfC] = ck3; idx[free_dim] = j
+        v = data[idx[0], idx[1], idx[2], idx[3]]
+        w = wi3
+        if v == v:
+            num[j] += w * v; den[j] += w
+
+        # Corner 4
+        idx[dfA] = ci4; idx[dfB] = cj4; idx[dfC] = ck4; idx[free_dim] = j
+        v = data[idx[0], idx[1], idx[2], idx[3]]
+        w = wi4
+        if v == v:
+            num[j] += w * v; den[j] += w
+
+        # Corner 5
+        idx[dfA] = ci5; idx[dfB] = cj5; idx[dfC] = ck5; idx[free_dim] = j
+        v = data[idx[0], idx[1], idx[2], idx[3]]
+        w = wi5
+        if v == v:
+            num[j] += w * v; den[j] += w
+
+        # Corner 6
+        idx[dfA] = ci6; idx[dfB] = cj6; idx[dfC] = ck6; idx[free_dim] = j
+        v = data[idx[0], idx[1], idx[2], idx[3]]
+        w = wi6
+        if v == v:
+            num[j] += w * v; den[j] += w
+
+        # Corner 7
+        idx[dfA] = ci7; idx[dfB] = cj7; idx[dfC] = ck7; idx[free_dim] = j
+        v = data[idx[0], idx[1], idx[2], idx[3]]
+        w = wi7
+        if v == v:
+            num[j] += w * v; den[j] += w
+
+    result = np.empty(free_axis_len)
+    for j in range(free_axis_len):
+        result[j] = num[j] / den[j] if den[j] > 0.0 else np.nan
+    return result
+
+
+@_njit(cache=True)
+def _inverse_1d_nb(x, y, target, out_of_range):
+    """JIT: single-pass linear crossing scan (first crossing only).
+
+    Designed for the optimizer's hot path -- assumes simple, mostly-
+    monotonic curves.  More complex cases (multiple crossings, "all"/
+    "nearest"/"last" modes, warnings) are handled by the Python
+    _inverse_1d in inverse.py.
+
+    Algorithm:
+      1. Single pass over the curve.  Skip non-finite points; reset the
+         "last finite" tracker on any gap so crossings are not bridged
+         across NaN regions.
+      2. For each adjacent pair of finite points, check if y-target
+         changes sign.  If so, linearly interpolate the crossing.
+      3. Track the point with minimum |y-target| as a fallback for clip.
+      4. out_of_range:  0 → return NaN,  1 → return the closest point.
+
+    Parameters
+    ----------
+    x, y : np.ndarray (1-D, float64)
+        Same-length arrays.
+    target : float
+    out_of_range : int
+        0 = nan,  1 = clip to nearest finite point.
+    """
+    n = len(x)
+    last_finite = -1
+    best_x = x[0]
+    best_diff = 1e300
+
+    for i in range(n):
+        xi = x[i]
+        yi = y[i]
+
+        if not np.isfinite(xi) or not np.isfinite(yi):
+            last_finite = -1
+            continue
+
+        diff = yi - target
+        adiff = diff if diff >= 0.0 else -diff
+        if adiff < best_diff:
+            best_diff = adiff
+            best_x = xi
+
+        if diff == 0.0 or -1e-15 < diff < 1e-15:
+            return xi
+
+        if last_finite >= 0:
+            y_prev = y[last_finite]
+            x_prev = x[last_finite]
+            d0 = y_prev - target
+
+            if d0 * diff < 0.0:
+                dy = yi - y_prev
+                if dy != 0.0:
+                    t = (target - y_prev) / dy
+                    return x_prev + t * (xi - x_prev)
+
+        last_finite = i
+
+    if out_of_range == 1:
+        return best_x
+    return np.nan

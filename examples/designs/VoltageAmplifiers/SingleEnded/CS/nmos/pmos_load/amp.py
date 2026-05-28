@@ -2,7 +2,7 @@
 
 NMOS driver (M1) + PMOS current-source load (M2).
 Single-ended input (VIN), single-ended output (VOUT).
-VB is an internal bias voltage that sets the PMOS gate — computed
+VB is an internal bias voltage that sets the PMOS gate -- computed
 by the model from the target VOUT_DC and the PMOS operating point.
 """
 

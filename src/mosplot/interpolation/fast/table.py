@@ -5,9 +5,18 @@ data onto a regular grid indexed by gmid = gm/Id instead of vgs, because gmid
 is the natural design variable in the gm/Id methodology. Subsequent lookups
 are O(1) trilinear interpolation rather than O(n) nearest-neighbour search.
 
-Two lookup paths:
-  lookup_scalar  -- single operating point; Numba-JIT compiled (~5 µs/call)
+Two forward lookup paths:
+  lookup_scalar  -- single operating point; Numba-JIT compiled (~7 µs/call)
   lookup         -- vectorised NumPy; efficient for arrays of query points
+
+One reverse curve-extraction path:
+  lookup_curve   -- extract full 1-D parameter curve along one axis for
+                    reverse lookup (see FastMosfet.lookup_gmid_for etc.)
+
+Axis validation:
+  _require_strictly_increasing is called at construction and cache-load time
+  for all four axes.  np.searchsorted-based bracketing requires sorted axes;
+  an unsorted axis silently produces wrong lookup results, so we fail loud.
 
 Disk caching is supported: the first run builds and saves the grid as a .npz
 file; later runs load it directly, skipping the resampling step.
@@ -22,7 +31,8 @@ from typing import Any
 
 import numpy as np
 
-from .interp import _resample_into, _lookup_scalar_nb, _bracket_vec, _interp4d_nan
+from .interp import _resample_into, _lookup_scalar_nb, _bracket_vec, _interp4d_nan, _bracket_nb, _curve_for_param_nb
+from mosplot.interpolation.curve import _AXIS_DIMS, _require_strictly_increasing
 
 
 # ---------------------------------------------------------------------------
@@ -283,6 +293,14 @@ class GmIdTable:
         self.gmid = gmid_grid
         self.params = all_params
 
+        # Validate axes at construction time.  np.searchsorted (used by all
+        # bracketing, forward and reverse) requires strictly increasing axes.
+        # An unsorted axis silently produces wrong interpolation results.
+        _require_strictly_increasing(self.lengths, "length")
+        _require_strictly_increasing(self.vbs, "vbs")
+        _require_strictly_increasing(self.vds, "vds")
+        _require_strictly_increasing(self.gmid, "gmid")
+
     # --- cache API --------------------------------------------------------------
 
     @staticmethod
@@ -394,6 +412,13 @@ class GmIdTable:
         obj._data = {p: z[f"data__{p}"] for p in obj.params}
         obj._data_stack = np.ascontiguousarray(np.stack([obj._data[p] for p in obj.params], axis=0))
         obj._param_idx = {p: i for i, p in enumerate(obj.params)}
+
+        # Same validation as __init__ -- cached axes must still be valid.
+        _require_strictly_increasing(obj.lengths, "length")
+        _require_strictly_increasing(obj.vbs, "vbs")
+        _require_strictly_increasing(obj.vds, "vds")
+        _require_strictly_increasing(obj.gmid, "gmid")
+
         return obj
 
     # --- lookup API -------------------------------------------------------------
@@ -440,6 +465,172 @@ class GmIdTable:
             ).reshape(shape)
             for p in params
         }
+
+    # --- curve extraction (reverse lookup support) ----------------------------
+    #
+    # lookup_curve extracts the full 1-D parameter curve along one free axis
+    # for use by the reverse-lookup API (FastMosfet.lookup_gmid_for etc.).
+    #
+    # For each raw parameter, the 3 fixed axes are bracketed once (Numba
+    # _bracket_nb), then _curve_for_param_nb does an 8-corner trilinear
+    # interpolation at every free-axis point -- a single Numba JIT call that
+    # produces the full curve in ~20 µs.  The result is used by the 1-D
+    # inverse solver to find crossings.
+
+    def _axis_values(self, axis_name: str):
+        if axis_name == "length":
+            return self.lengths
+        if axis_name == "vbs":
+            return self.vbs
+        if axis_name == "vds":
+            return self.vds
+        if axis_name == "gmid":
+            return self.gmid
+        raise KeyError(f"Unknown axis: {axis_name!r}")
+
+    def _fixed_axis_values_for_curve(
+        self,
+        solve_for: str,
+        *,
+        length=None,
+        gmid=None,
+        vds=None,
+        vbs=None,
+    ):
+        if solve_for not in _AXIS_DIMS:
+            raise ValueError(
+                f"Unknown solve axis: {solve_for!r}. "
+                f"Expected one of {sorted(_AXIS_DIMS)}."
+            )
+
+        values = {
+            "length": length,
+            "gmid": gmid,
+            "vds": vds,
+            "vbs": vbs,
+        }
+
+        if values[solve_for] is not None:
+            raise ValueError(
+                f"Axis {solve_for!r} is being solved for and must not be provided."
+            )
+
+        required = [name for name in _AXIS_DIMS if name != solve_for]
+        missing = [name for name in required if values[name] is None]
+
+        if missing:
+            raise ValueError(
+                f"Missing fixed axes for solve_for={solve_for!r}: {missing}"
+            )
+
+        return {name: float(values[name]) for name in required}
+
+    def lookup_curve(
+        self,
+        solve_for: str,
+        *,
+        params,
+        length=None,
+        gmid=None,
+        vds=None,
+        vbs=None,
+    ):
+        """Return raw parameter curves along one free axis.
+
+        Parameters
+        ----------
+        solve_for : {"length", "gmid", "vds", "vbs"}
+            Axis to leave free.
+        params : sequence[str]
+            Raw table parameter names to extract as curves. May be empty.
+        length, gmid, vds, vbs : float or None
+            The three fixed axes must be provided. The solved axis must be None.
+
+        Returns
+        -------
+        axis : np.ndarray
+            Values of the solved axis.
+        curves : dict[str, np.ndarray]
+            Mapping from raw parameter name to 1-D curve over axis.
+        """
+        if solve_for not in _AXIS_DIMS:
+            raise ValueError(
+                f"Unknown solve axis: {solve_for!r}. "
+                f"Expected one of {sorted(_AXIS_DIMS)}."
+            )
+
+        if isinstance(params, str):
+            params = [params]
+        else:
+            params = list(params)
+
+        for p in params:
+            if p not in self._data:
+                raise KeyError(f"Unknown table parameter: {p!r}")
+
+        fixed = self._fixed_axis_values_for_curve(
+            solve_for,
+            length=length,
+            gmid=gmid,
+            vds=vds,
+            vbs=vbs,
+        )
+
+        free_axis = self._axis_values(solve_for)
+        free_dim = _AXIS_DIMS[solve_for]
+
+        brackets = {}
+        for axis_name, value in fixed.items():
+            ax = self._axis_values(axis_name)
+            i0, frac = _bracket_nb(ax, value)
+            brackets[axis_name] = (int(i0), int(i0) + 1, float(frac))
+
+        fixed_axis_names = list(fixed.keys())
+
+        # Pre-compute 8-corner indices and weights for the Numba kernel
+        corner_ia = np.empty(8, dtype=np.int64)
+        corner_ib = np.empty(8, dtype=np.int64)
+        corner_ic = np.empty(8, dtype=np.int64)
+        corner_wt = np.empty(8, dtype=np.float64)
+
+        dims = [_AXIS_DIMS[name] for name in fixed_axis_names]
+        dfA, dfB, dfC = dims
+
+        i0a, i1a, fa = brackets[fixed_axis_names[0]]
+        i0b, i1b, fb = brackets[fixed_axis_names[1]]
+        i0c, i1c, fc = brackets[fixed_axis_names[2]]
+
+        w0a = 1.0 - fa; w1a = fa
+        w0b = 1.0 - fb; w1b = fb
+        w0c = 1.0 - fc; w1c = fc
+
+        corner_ia[0]=i0a; corner_ib[0]=i0b; corner_ic[0]=i0c; corner_wt[0]=w0a*w0b*w0c
+        corner_ia[1]=i1a; corner_ib[1]=i0b; corner_ic[1]=i0c; corner_wt[1]=w1a*w0b*w0c
+        corner_ia[2]=i0a; corner_ib[2]=i1b; corner_ic[2]=i0c; corner_wt[2]=w0a*w1b*w0c
+        corner_ia[3]=i0a; corner_ib[3]=i0b; corner_ic[3]=i1c; corner_wt[3]=w0a*w0b*w1c
+        corner_ia[4]=i1a; corner_ib[4]=i1b; corner_ic[4]=i0c; corner_wt[4]=w1a*w1b*w0c
+        corner_ia[5]=i1a; corner_ib[5]=i0b; corner_ic[5]=i1c; corner_wt[5]=w1a*w0b*w1c
+        corner_ia[6]=i0a; corner_ib[6]=i1b; corner_ic[6]=i1c; corner_wt[6]=w0a*w1b*w1c
+        corner_ia[7]=i1a; corner_ib[7]=i1b; corner_ic[7]=i1c; corner_wt[7]=w1a*w1b*w1c
+
+        curves = {
+            p: _curve_for_param_nb(
+                self._data[p],
+                len(free_axis), free_dim,
+                corner_ia[0], corner_ia[1], corner_ia[2], corner_ia[3],
+                corner_ia[4], corner_ia[5], corner_ia[6], corner_ia[7],
+                corner_ib[0], corner_ib[1], corner_ib[2], corner_ib[3],
+                corner_ib[4], corner_ib[5], corner_ib[6], corner_ib[7],
+                corner_ic[0], corner_ic[1], corner_ic[2], corner_ic[3],
+                corner_ic[4], corner_ic[5], corner_ic[6], corner_ic[7],
+                corner_wt[0], corner_wt[1], corner_wt[2], corner_wt[3],
+                corner_wt[4], corner_wt[5], corner_wt[6], corner_wt[7],
+                dfA, dfB, dfC,
+            )
+            for p in params
+        }
+
+        return free_axis, curves
 
 
 # ---------------------------------------------------------------------------

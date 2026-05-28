@@ -1,4 +1,4 @@
-"""Configuration for CMOS inverter amplifier — TSMC 65nm LVT."""
+"""Configuration for CMOS inverter amplifier -- TSMC 65nm LVT."""
 
 from amp import run, OptimizationParameter, Spec
 
