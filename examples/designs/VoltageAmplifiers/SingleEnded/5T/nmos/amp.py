@@ -459,14 +459,12 @@ class Circuit:
         return {"VBN": VBN}
 
 
-def build_circuit(**kwargs) -> Circuit:
-    return Circuit(**kwargs)
 
 
 def _generate_simulation_netlist(optimizer: Optimizer, output_path: str) -> None:
-    circuit = optimizer.circuit
+    circuit = optimizer.circuits[0]
     opt_params = optimizer.get_opt_params()
-    specs = circuit.evaluate_specs(**opt_params)
+    specs = optimizer.corner_results[0].specs
     generator = SpectreGenerator(
         name="amp",
         ports=["VINN", "VINP", "VOUT", "vdd", "vss"],
@@ -487,12 +485,7 @@ def _generate_simulation_netlist(optimizer: Optimizer, output_path: str) -> None
 
 def run(
     *,
-    lookup_table: str,
-    nmos_name: str,
-    pmos_name: str,
-    vdd: float,
-    vin_cm: float,
-    cout: float,
+    corners: list[dict],
     parameters: list[OptimizationParameter],
     target_specs: dict[str, Spec],
     output_module: str,
@@ -501,17 +494,10 @@ def run(
     n_restarts: int = 1,
     fixed_point_iterations: int = 5,
 ) -> None:
-    circuit = Circuit(
-        lookup_table_path=lookup_table,
-        nmos_name=nmos_name,
-        pmos_name=pmos_name,
-        vdd=vdd,
-        vin_cm=vin_cm,
-        cout=cout,
-        fixed_point_iterations=fixed_point_iterations,
-    )
-    optimizer = Optimizer(circuit, parameters, target_specs)
+    corner_names = [c.get("name", f"corner_{i}") for i, c in enumerate(corners)]
+    circuit_kwargs = [{k: v for k, v in c.items() if k != "name"} for c in corners]
+    circuits = [Circuit(**kwargs, fixed_point_iterations=fixed_point_iterations) for kwargs in circuit_kwargs]
+    optimizer = Optimizer(circuits, parameters, target_specs, corner_names=corner_names)
     optimizer.optimize(maxiter=maxiter, seed=seed, n_restarts=n_restarts)
-    report = DesignReport(circuit, optimizer)
-    print(report.report())
+    print(DesignReport(optimizer).report())
     _generate_simulation_netlist(optimizer, output_module)

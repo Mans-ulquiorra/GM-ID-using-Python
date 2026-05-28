@@ -1,16 +1,14 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 import numpy as np
 import numpy.typing as npt
 import cma
 from scipy.optimize import OptimizeResult, minimize
+from .corners import CornerResult, evaluate_corners, worst_case_specs
 from .datatypes import OptimizationParameter, Spec
-from .netlist.base import NetlistGenerator
 
 
-# Guard threshold: for x > _SOFTPLUS_LIN_THRESHOLD the function is linear (avoids exp overflow).
 _SOFTPLUS_LIN_THRESHOLD = 20.0
 
 
@@ -26,15 +24,25 @@ class Optimizer:
 
     def __init__(
         self,
-        circuit: Any,
+        circuits: Any | list[Any],
         parameters: list[OptimizationParameter],
         target_specs: dict[str, Spec],
+        corner_names: list[str] | None = None,
+        executor: Any = None,
     ) -> None:
-        self.circuit = circuit
+        self.circuits: list[Any] = circuits if isinstance(circuits, list) else [circuits]
+        self.corner_names: list[str] = (
+            corner_names
+            if corner_names is not None
+            else [f"corner_{i}" for i in range(len(self.circuits))]
+        )
+        self.executor = executor
         self.parameters = parameters
         self.target_specs = target_specs
         self.opt_params: dict[str, float] | None = None
         self.result: OptimizeResult | None = None
+        self.corner_results: list[CornerResult] | None = None
+        self.binding: dict[str, str] | None = None
 
     def compute_cost(self, specs: dict[str, float]) -> float:
         """
@@ -50,7 +58,10 @@ class Optimizer:
         """
         cost = 0.0
         for key, spec in self.target_specs.items():
-            actual = specs[key]
+            actual = specs.get(key)
+            if actual is None:
+                cost += 1e6
+                continue
             target = spec.target
 
             if spec.mode == "min":
@@ -84,11 +95,12 @@ class Optimizer:
 
     def _objective(self, x: list[float] | npt.NDArray) -> float:
         params = self._transform_params(x)
-        try:
-            specs = self.circuit.evaluate_specs(**params)
-        except Exception:
+        all_specs = evaluate_corners(self.circuits, params)
+        corner_specs = list(zip(self.corner_names, all_specs))
+        worst, _ = worst_case_specs(corner_specs, self.target_specs)
+        if not worst:
             return 1e6
-        return self.compute_cost(specs)
+        return self.compute_cost(worst)
 
     def _get_bounds(self) -> list[tuple[float, float]]:
         bounds = []
@@ -118,11 +130,8 @@ class Optimizer:
         opts["bounds"] = [[0.0] * n, [1.0] * n]
         opts["maxiter"] = maxiter
         opts["seed"] = seed
-
-        # Show optimizer progress, but do not write CMA log/output folders
         opts["verb_log"] = 0
         opts["verbose"] = 1
-
         opts["tolx"] = 1e-5
         opts["tolfun"] = 1e-5
 
@@ -131,6 +140,21 @@ class Optimizer:
 
         best_x = lbs + es.result.xbest * (ubs - lbs)
         return best_x, float(es.result.fbest), int(es.result.iterations)
+
+    def _run_corner_analysis(self) -> None:
+        """Evaluate all corners once at the optimum and store results."""
+        opt_params = self.get_opt_params()
+        all_specs = evaluate_corners(self.circuits, opt_params)
+        self.corner_results = [
+            CornerResult(
+                name=name,
+                specs=specs,
+                cost=self.compute_cost(specs) if specs else float("inf"),
+            )
+            for name, specs in zip(self.corner_names, all_specs)
+        ]
+        corner_specs = list(zip(self.corner_names, all_specs))
+        _, self.binding = worst_case_specs(corner_specs, self.target_specs)
 
     def optimize(
         self,
@@ -193,29 +217,12 @@ class Optimizer:
             message="CMA-ES + SLSQP optimization complete.",
             nit=total_iters,
         )
+
+        self._run_corner_analysis()
+
         return self.result
 
     def get_opt_params(self) -> dict[str, float]:
         if self.opt_params is None:
             raise ValueError("Optimization has not been performed yet.")
         return self.opt_params
-
-    def generate(self, generator: NetlistGenerator, output_path: Path | str) -> Path:
-        """Write a simulator netlist for the best found design.
-
-        Calls evaluate_specs() once at the optimum to refresh device_dimensions
-        and passive_params, then delegates to the given generator.
-        """
-        opt_params = self.get_opt_params()
-        self.circuit.evaluate_specs(**opt_params)
-        vsource_params = self.circuit.compute_vsource_params(opt_params)
-        return generator.generate(
-            mosfets=self.circuit.MOSFETS,
-            passives=self.circuit.PASSIVES,
-            vsources=self.circuit.VSOURCES,
-            device_map=self.circuit.device_map,
-            dimensions=self.circuit.device_dimensions,
-            passive_params=self.circuit.passive_params,
-            vsource_params=vsource_params,
-            output_path=Path(output_path),
-        )

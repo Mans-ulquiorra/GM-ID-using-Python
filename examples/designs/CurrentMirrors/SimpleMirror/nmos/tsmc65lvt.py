@@ -27,12 +27,27 @@ TARGET_SPECS = {
     "Vcompliance": Spec(0.2, "min", 2.0),
 }
 
+
+CORNERS = [
+    dict(
+        lookup_table_path=LOOKUP_TABLE,
+        nmos_name=NMOS_NAME,
+        vdd=VDD,
+        cout=COUT,
+        iref=IREF,
+        k=K,
+    ),
+]
+
+
 if __name__ == "__main__":
     run(
-        lookup_table=LOOKUP_TABLE, nmos_name=NMOS_NAME,
-        vdd=VDD, cout=COUT, iref=IREF, k=K,
-        parameters=PARAMETERS, target_specs=TARGET_SPECS,
+        corners=CORNERS,
+        parameters=PARAMETERS,
+        target_specs=TARGET_SPECS,
         output_module=OUTPUT_MODULE,
-        maxiter=MAXITER, seed=SEED, n_restarts=N_RESTARTS,
+        maxiter=MAXITER,
+        seed=SEED,
+        n_restarts=N_RESTARTS,
         fixed_point_iterations=FIXED_POINT_ITERATIONS,
     )

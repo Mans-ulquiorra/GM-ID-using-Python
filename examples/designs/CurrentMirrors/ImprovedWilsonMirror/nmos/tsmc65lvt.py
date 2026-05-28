@@ -38,14 +38,22 @@ TARGET_SPECS = {
 }
 
 
-if __name__ == "__main__":
-    run(
-        lookup_table=LOOKUP_TABLE,
-        pmos_name=PMOS_NAME,
+
+CORNERS = [
+    dict(
+        lookup_table_path=LOOKUP_TABLE,
+        nmos_name=NMOS_NAME,
         vdd=VDD,
         cout=COUT,
         iref=IREF,
         k=K,
+    ),
+]
+
+
+if __name__ == "__main__":
+    run(
+        corners=CORNERS,
         parameters=PARAMETERS,
         target_specs=TARGET_SPECS,
         output_module=OUTPUT_MODULE,

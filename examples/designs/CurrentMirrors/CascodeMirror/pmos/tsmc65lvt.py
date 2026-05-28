@@ -40,18 +40,26 @@ TARGET_SPECS = {
 }
 
 
-if __name__ == "__main__":
-    run(
-        lookup_table=LOOKUP_TABLE,
+
+CORNERS = [
+    dict(
+        lookup_table_path=LOOKUP_TABLE,
         pmos_name=PMOS_NAME,
         vdd=VDD,
         cout=COUT,
         iref=IREF,
         k=K,
+        vdsat_margin=VDSAT_MARGIN,
+    ),
+]
+
+
+if __name__ == "__main__":
+    run(
+        corners=CORNERS,
         parameters=PARAMETERS,
         target_specs=TARGET_SPECS,
         output_module=OUTPUT_MODULE,
-        vdsat_margin=VDSAT_MARGIN,
         maxiter=MAXITER,
         seed=SEED,
         n_restarts=N_RESTARTS,

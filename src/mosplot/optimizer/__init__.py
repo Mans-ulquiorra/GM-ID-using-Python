@@ -1,6 +1,7 @@
 from .optimizer import Optimizer
 from .design_report import DesignReport
 from .datatypes import Spec, OptimizationParameter
+from .corners import CornerResult
 from .ac import LinearSystem, PortAnalysis, SmallSignalSolver, TransferAnalysis
 from .fast_mosfet import FastMosfet
 from .topology.elements import Instance, Passive, VSource
@@ -12,6 +13,7 @@ __all__ = [
     "DesignReport",
     "Spec",
     "OptimizationParameter",
+    "CornerResult",
     "LinearSystem",
     "PortAnalysis",
     "SmallSignalSolver",

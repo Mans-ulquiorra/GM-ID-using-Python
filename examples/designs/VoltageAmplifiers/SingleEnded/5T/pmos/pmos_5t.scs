@@ -1,9 +1,9 @@
-parameters vcm=600m vout_dc=450.9m
-subckt amp (VINN VINP VOUT vdd vss)
-M1a (n01 VINP n02 vdd) pch_lvt l=240.1n w=5.874u
-M1b (VOUT VINN n02 vdd) pch_lvt l=240.1n w=5.874u
-M2a (n01 n01 vss vss) nch_lvt l=558.8n w=893.7n
-M2b (VOUT n01 vss vss) nch_lvt l=558.8n w=893.7n
-M3 (n02 vbp vdd vdd) pch_lvt l=130n w=1.329u
-VBP (vbp vss) vsource dc=684.1m
-ends amp
+parameters vcm=600m vout_dc=448m
+subckt a010009 (VINN VINP VOUT vdd vss)
+M1a (net02 VINP net19 vdd) pch_lvt l=280n w=6.19u
+M1b (VOUT VINN net19 vdd) pch_lvt l=280n w=6.19u
+M2a (net02 net02 vss vss) nch_lvt l=470.4n w=824.9n
+M2b (VOUT net02 vss vss) nch_lvt l=470.4n w=824.9n
+M3 (net19 vbp vdd vdd) pch_lvt l=130n w=589.8n
+VBP (vbp vss) vsource dc=610.1m
+ends a010009

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
 from .optimizer import Optimizer
 
 
@@ -19,7 +18,6 @@ _SI_PREFIXES: list[tuple[float, str]] = [
 
 
 def _format_eng(value: float | None) -> str:
-    """Format a scalar using the largest applicable SI prefix."""
     if value is None:
         return "N/A"
     abs_val = abs(value)
@@ -30,7 +28,6 @@ def _format_eng(value: float | None) -> str:
 
 
 def _format_area(value: float | None) -> str:
-    """Format an area value (in m²) as µm² or nm²."""
     if value is None:
         return "N/A"
     um2 = value * 1e12
@@ -39,22 +36,38 @@ def _format_area(value: float | None) -> str:
     return f"{value * 1e18:.3f} nm²"
 
 
+def _format_spec(key: str, value: float | None) -> str:
+    if key == "Area":
+        return _format_area(value)
+    try:
+        return _format_eng(value)
+    except (ValueError, TypeError):
+        return str(value)
+
+
+def _format_target(key: str, spec) -> str:
+    mode_sym = {"max": "≥", "min": "≤", "eq": "="}
+    sym = mode_sym.get(spec.mode, "")
+    val = _format_area(spec.target) if key == "Area" else _format_eng(spec.target)
+    return f"{sym}{val}"
+
+
 class DesignReport:
     """Generates a human-readable report for an optimized circuit."""
 
-    def __init__(self, circuit: Any, optimizer: Optimizer) -> None:
-        self.circuit = circuit
+    def __init__(self, optimizer: Optimizer) -> None:
         self.optimizer = optimizer
-        self.opt_params: dict[str, float] = optimizer.get_opt_params()
-        self.full_specs: dict[str, Any] = circuit.evaluate_specs(**self.opt_params)
         self.objective: float | None = (
             optimizer.result.fun if optimizer.result is not None else None
         )
 
     def report(self) -> str:
         lines: list[str] = []
+        opt = self.optimizer
+        nominal = opt.circuits[0]
 
-        dims = getattr(self.circuit, "device_dimensions", None)
+        # --- Transistor dimensions (from the first corner) ---
+        dims = getattr(nominal, "device_dimensions", None)
         lines.append("\nTransistor Details:")
         if dims:
             for device, item in dims.items():
@@ -69,25 +82,65 @@ class DesignReport:
         else:
             lines.append("  Not available.")
 
-        lines.append("\nFinal Circuit Specs:")
-        target_specs = getattr(self.optimizer, "target_specs", {})
-        if self.full_specs:
-            for key, val in self.full_specs.items():
-                target = target_specs.get(key)
-                target_str = (
-                    f"  (target: {_format_area(target.target) if key == 'Area' else _format_eng(target.target)})"
-                    if target
-                    else ""
-                )
-                if key == "Area":
-                    lines.append(f"  {key}: {_format_area(val)}{target_str}")
-                else:
-                    try:
-                        lines.append(f"  {key}: {_format_eng(val)}{target_str}")
-                    except (ValueError, TypeError):
-                        lines.append(f"  {key}: {val}{target_str}")
-        else:
+        # --- Per-corner spec table ---
+        lines.append("\nCorner Results:")
+        corner_results = opt.corner_results
+        binding = opt.binding or {}
+        target_specs = opt.target_specs
+
+        if not corner_results:
             lines.append("  Not available.")
+        else:
+            all_keys = list(corner_results[0].specs.keys())
+            corner_names = [r.name for r in corner_results]
+
+            # Build formatted cell values
+            rows: dict[str, list[str]] = {}
+            for key in all_keys:
+                rows[key] = [_format_spec(key, r.specs.get(key)) for r in corner_results]
+
+            # Column widths
+            key_w = max(len(k) for k in all_keys)
+            col_ws = [
+                max(len(name), max(len(rows[k][i]) for k in all_keys))
+                for i, name in enumerate(corner_names)
+            ]
+            tgt_w = max(
+                (max(len(_format_target(k, target_specs[k])) for k in target_specs) if target_specs else 0),
+                len("Target"),
+            )
+            bind_w = max(
+                (max(len(v) for v in binding.values()) if binding else 0),
+                len("Binding"),
+            )
+
+            def row_line(label: str, cells: list[str], target: str = "", bind: str = "") -> str:
+                parts = [f"  {label:<{key_w}}"]
+                for cell, w in zip(cells, col_ws):
+                    parts.append(f" | {cell:<{w}}")
+                parts.append(f" | {target:<{tgt_w}}")
+                parts.append(f" | {bind:<{bind_w}}")
+                return "".join(parts)
+
+            sep = (
+                "  " + "-" * key_w
+                + "".join("-+-" + "-" * w for w in col_ws)
+                + "-+-" + "-" * tgt_w
+                + "-+-" + "-" * bind_w
+            )
+
+            lines.append(row_line("Spec", corner_names, "Target", "Binding"))
+            lines.append(sep)
+
+            for key in all_keys:
+                cells = rows[key]
+                if key in target_specs:
+                    target_str = _format_target(key, target_specs[key])
+                    bind_str = binding.get(key, "--")
+                else:
+                    target_str = ""
+                    bind_str = ""
+                lines.append(row_line(key, cells, target_str, bind_str))
 
         if self.objective is not None:
             lines.append(f"\nFinal cost: {self.objective:.6g}")

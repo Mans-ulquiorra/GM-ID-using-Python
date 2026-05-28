@@ -88,14 +88,41 @@ TARGET_SPECS = {
 }
 
 
-if __name__ == "__main__":
-    run(
-        lookup_table=LOOKUP_TABLE,
+
+CORNERS = [
+    dict(
+        lookup_table_path="/home/medwatt/coding/gmid_lookup/tsmc_65_lv_spectre.npz",
+        name="tt",
         nmos_name=NMOS_NAME,
         pmos_name=PMOS_NAME,
         vdd=VDD,
         vin_cm=VIN_CM,
         cout=COUT,
+    ),
+    dict(
+        lookup_table_path="/home/medwatt/coding/gmid_lookup/tsmc_65_lv_spectre_ff.npz",
+        name="ff",
+        nmos_name=NMOS_NAME,
+        pmos_name=PMOS_NAME,
+        vdd=VDD,
+        vin_cm=VIN_CM,
+        cout=COUT,
+    ),
+    dict(
+        lookup_table_path="/home/medwatt/coding/gmid_lookup/tsmc_65_lv_spectre_ss.npz",
+        name="ss",
+        nmos_name=NMOS_NAME,
+        pmos_name=PMOS_NAME,
+        vdd=VDD,
+        vin_cm=VIN_CM,
+        cout=COUT,
+    ),
+]
+
+
+if __name__ == "__main__":
+    run(
+        corners=CORNERS,
         parameters=PARAMETERS,
         target_specs=TARGET_SPECS,
         output_module=OUTPUT_MODULE,
