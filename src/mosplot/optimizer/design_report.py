@@ -1,46 +1,15 @@
 from __future__ import annotations
 
+from mosplot.util.format import si, si_area
 from .optimizer import Optimizer
 
-
-_SI_PREFIXES: list[tuple[float, str]] = [
-    (1e12, "T"),
-    (1e9, "G"),
-    (1e6, "M"),
-    (1e3, "k"),
-    (1e0, ""),
-    (1e-3, "m"),
-    (1e-6, "µ"),
-    (1e-9, "n"),
-    (1e-12, "p"),
-    (1e-15, "f"),
-]
-
-
-def _format_eng(value: float | None) -> str:
-    if value is None:
-        return "N/A"
-    abs_val = abs(value)
-    for scale, prefix in _SI_PREFIXES:
-        if abs_val >= scale:
-            return f"{value / scale:.3g}{prefix}"
-    return f"{value:.3g}"
-
-
-def _format_area(value: float | None) -> str:
-    if value is None:
-        return "N/A"
-    um2 = value * 1e12
-    if um2 >= 1.0:
-        return f"{um2:.3f} µm²"
-    return f"{value * 1e18:.3f} nm²"
 
 
 def _format_spec(key: str, value: float | None) -> str:
     if key == "Area":
-        return _format_area(value)
+        return si_area(value)
     try:
-        return _format_eng(value)
+        return si(value, unicode=True)
     except (ValueError, TypeError):
         return str(value)
 
@@ -48,7 +17,7 @@ def _format_spec(key: str, value: float | None) -> str:
 def _format_target(key: str, spec) -> str:
     mode_sym = {"max": "≥", "min": "≤", "eq": "="}
     sym = mode_sym.get(spec.mode, "")
-    val = _format_area(spec.target) if key == "Area" else _format_eng(spec.target)
+    val = si_area(spec.target) if key == "Area" else si(spec.target, unicode=True)
     return f"{sym}{val}"
 
 
@@ -72,10 +41,10 @@ class DesignReport:
         if dims:
             for device, item in dims.items():
                 lines.append(f"  {device}:")
-                lines.append(f"    Length:  {_format_eng(item.get('Length'))}m")
-                lines.append(f"    Width:   {_format_eng(item.get('Width'))}m")
-                lines.append(f"    Area:    {_format_area(item.get('Area'))}")
-                lines.append(f"    Current: {_format_eng(item.get('Current'))}A")
+                lines.append(f"    Length:  {si(item.get('Length'), unicode=True)}m")
+                lines.append(f"    Width:   {si(item.get('Width'), unicode=True)}m")
+                lines.append(f"    Area:    {si_area(item.get('Area'))}")
+                lines.append(f"    Current: {si(item.get('Current'), unicode=True)}A")
                 gmid = item.get("GMID")
                 if gmid is not None:
                     lines.append(f"    GmID:    {gmid:.2f}")

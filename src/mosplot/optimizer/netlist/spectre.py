@@ -5,7 +5,7 @@ from typing import Any
 
 from .base import NetlistGenerator
 from ..topology.elements import Instance, Passive, VSource
-from ._util import si
+from mosplot.util.format import si
 
 
 class SpectreGenerator(NetlistGenerator):

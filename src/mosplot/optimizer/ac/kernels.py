@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from mosplot._numba import njit
+from mosplot.util.numba import njit
 from ._types import UNKNOWN_NODE
 
 

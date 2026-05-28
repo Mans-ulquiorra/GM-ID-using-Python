@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from mosplot._numba import njit as _njit
+from mosplot.util.numba import njit as _njit
 
 
 # ---------------------------------------------------------------------------
