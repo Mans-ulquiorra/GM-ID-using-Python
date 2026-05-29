@@ -1,9 +1,0 @@
-parameters vcm=600m vout_dc=712.8m
-subckt amp (VINN VINP VOUT vdd vss)
-M1a (n01 VINP n02 vss) nch_lvt l=279.9n w=3.326u
-M1b (VOUT VINN n02 vss) nch_lvt l=279.9n w=3.326u
-M2a (n01 n01 vdd vdd) pch_lvt l=390n w=1.304u
-M2b (VOUT n01 vdd vdd) pch_lvt l=390n w=1.304u
-M3 (n02 vbn vss vss) nch_lvt l=130n w=217.9n
-VBN (vbn vss) vsource dc=564.6m
-ends amp

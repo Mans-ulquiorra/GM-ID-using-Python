@@ -1,6 +1,0 @@
-parameters vcm=369.8m vin_dc=369.8m vout_dc=600m
-subckt cs_amp (VIN VOUT vdd vss)
-M1 (VOUT VIN vss vss) nch_lvt l=120n w=3.451u
-M2 (VOUT vb vdd vdd) pch_lvt l=170.8n w=1.038u
-VB (vb vss) vsource dc=617.6m
-ends cs_amp

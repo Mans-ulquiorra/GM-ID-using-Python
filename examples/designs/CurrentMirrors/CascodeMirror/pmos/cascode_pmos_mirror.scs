@@ -1,7 +1,0 @@
-parameters iout=20u iref=5u k=4 rout=2.981M vcompliance=545.6m vdd=1.2 vout_dc=600m
-subckt Current_Mirror (IREF VOUT vdd vss)
-M1 (n01 n01 vdd vdd) pch_lvt l=838.1n w=4.4u
-M4 (IREF IREF n01 vdd) pch_lvt l=390n w=2.279u
-M2 (n02 n01 vdd vdd) pch_lvt l=838.1n w=17.26u
-M3 (VOUT IREF n02 vdd) pch_lvt l=390n w=9.898u
-ends Current_Mirror

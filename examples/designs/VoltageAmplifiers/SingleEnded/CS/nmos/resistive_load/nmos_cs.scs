@@ -1,5 +1,0 @@
-parameters vcm=353m vin_dc=353m vout_dc=600m
-subckt amp (VIN VOUT vdd vss)
-M1 (VOUT VIN vss vss) nch_lvt l=200n w=4.338u
-R1 (vdd VOUT) resistor r=50k
-ends amp
