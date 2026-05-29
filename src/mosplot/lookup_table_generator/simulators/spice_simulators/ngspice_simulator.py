@@ -1,4 +1,3 @@
-%%writefile "/content/gmid/src/mosplot/lookup_table_generator/simulators/spice_simulators/ngspice_simulator.py"
 # imports <<<
 import os
 import tempfile
