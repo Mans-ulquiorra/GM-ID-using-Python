@@ -98,9 +98,8 @@ class BaseSimulator(ABC):
                 for line in proc.stdout:
                     print(line, end="")
         else:
-            # Run the process without printing output.
-            result = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            if result.returncode != 0:
+            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if not os.path.exists(self.output_file_path) or os.path.getsize(self.output_file_path) == 0:
                 with open(self.log_file_path, "r") as log_file:
                     log_contents = log_file.read()
                 self.remove_temp_files()
