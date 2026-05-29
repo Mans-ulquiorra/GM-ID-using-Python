@@ -1,3 +1,4 @@
+%%writefile "/content/gmid/src/mosplot/lookup_table_generator/simulators/spice_simulators/ngspice_simulator.py"
 # imports <<<
 import os
 import tempfile
@@ -20,7 +21,8 @@ class NgspiceSimulator(BaseSimulator):
         simulator_path="ngspice",
         mos_spice_symbols=("m1", "m1"),
         device_parameters={"w": 10e-6},
-        parameters_to_save=["weff", "id", "vth", "vdsat", "vdssat", "gm", "gmbs", "gds", "cgg", "cgs", "cgb", "cgd", "cdd"],
+        # parameters_to_save=["weff", "id", "vth", "vdsat", "vdssat", "gm", "gmbs", "gds", "cgg", "cgs", "cgb", "cgd", "cdd"],
+        parameters_to_save=["weff", "id", "vth", "vdsat", "gm", "gmbs", "gds", "cgg", "cgs", "cgb", "cgd", "cdd"],
     ):
         super().__init__(
                 raw_spice=raw_spice,
@@ -69,7 +71,7 @@ class NgspiceSimulator(BaseSimulator):
             "weff":   [f"save @{symbol}[weff]",   f"v(@{symbol}[weff])"],
             "vth":    [f"save @{symbol}[vth]",    "v(m_vth)"],
             "vdsat":  [f"save @{symbol}[vdsat]",  "v(m_vdsat)"],
-            "vdssat": [f"save @{symbol}[vdssat]", "v(m_vdssat)"],
+            # "vdssat": [f"save @{symbol}[vdssat]", "v(m_vdssat)"],
             "gm":     [f"save @{symbol}[gm]",     f"@{symbol}[gm]"],
             "gmbs":   [f"save @{symbol}[gmbs]",   f"@{symbol}[gmbs]"],
             "gds":    [f"save @{symbol}[gds]",    f"@{symbol}[gds]"],
@@ -96,7 +98,7 @@ class NgspiceSimulator(BaseSimulator):
             "let i_vds     = abs(i(vds))",
             f"let m_vth    = {v_sign}abs(@{symbol}[vth])",
             f"let m_vdsat  = {v_sign}abs(@{symbol}[vdsat])",
-            f"let m_vdssat = {v_sign}abs(@{symbol}[vdssat])",
+            # f"let m_vdssat = {v_sign}abs(@{symbol}[vdssat])",
             f"write {self.output_file_path} all",
             ".endc",
             ".end",
